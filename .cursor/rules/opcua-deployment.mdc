@@ -1,0 +1,16 @@
+---
+description: OPC UA bridge and BMS deployment patterns for chiller anomaly detection
+globs: app/opcua_bridge.py,app/preprocessor.py,docker-compose.yml
+alwaysApply: false
+---
+
+- Use `asyncua` for all OPC UA client code in this project.
+- All 16 sensor keys in `NODE_MAP` must match `RAW_SENSOR_COLS` in `app/preprocessor.py`.
+- Never hardcode node IDs outside `NODE_MAP` in `app/opcua_bridge.py`.
+- Timestamps passed to `ChillerPreprocessor.update()` must be timezone-aware UTC.
+- Do not POST to `/predict` until `preprocessor.is_warm()` returns true (48 readings).
+- Feature vector order must follow `FEATURE_ORDER` — never reorder for convenience.
+- Scaler (`model/scaler.pkl`) must be applied in the preprocessor, not in the inference API.
+- Log connection failures with server URL; never log credentials or certificate contents.
+- `handle_anomaly()` is the extension point for alerts — keep read/score paths side-effect free.
+- Training pipeline parity is mandatory: verify preprocessing matches the training notebook before blaming the ONNX model.
