@@ -1,0 +1,45 @@
+# docker-compose.yml
+# Runs the LOF inference server and OPC-UA bridge as a unified stack.
+# Usage:
+#   docker compose up --build        (first time)
+#   docker compose up -d             (background after first build)
+#   docker compose logs -f           (watch logs)
+#   docker compose down              (stop everything)
+
+services:
+
+  # ── LOF Inference API ──────────────────────────────────────────────────────
+  lof-chiller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lof-chiller:1.0
+    container_name: lof-chiller
+    ports:
+      - "8000:8000"          # exposes /predict, /predict/batch, /health
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── OPC-UA Bridge ──────────────────────────────────────────────────────────
+  opcua-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.bridge        # separate lightweight image
+    container_name: opcua-bridge
+    depends_on:
+      lof-chiller:
+        condition: service_healthy         # waits for inference API to be ready
+    environment:
+      - INFERENCE_URL=http://lof-chiller:8000/predict
+      - OPC_SERVER_URL=opc.tcp://<BMS_SERVER_IP>:4840
+    restart: unless-stopped
+    networks:
+      - bms-net
+
+networks:
+  bms-net:
+    driver: bridge
