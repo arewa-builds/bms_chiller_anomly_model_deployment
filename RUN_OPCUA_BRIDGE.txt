@@ -1,0 +1,27 @@
+How to run opcua_bridge.py
+==========================
+
+1. Activate the virtual environment:
+   PowerShell:
+   .\.venv\Scripts\Activate.ps1
+
+2. Edit the .env file and fill in your OPC UA details:
+   - OPC_SERVER_URL
+   - OPC_USERNAME
+   - OPC_PASSWORD
+   - OPC_SECURITY_POLICY
+   - OPC_SECURITY_MODE
+   - INFERENCE_URL
+
+3. Make sure the OPC UA server is reachable and that the node IDs in app/opcua_bridge.py match your server.
+
+4. Start the inference API if needed:
+   .\.venv\Scripts\python.exe app\main.py
+
+5. Run the bridge:
+   .\.venv\Scripts\python.exe app\opcua_bridge.py
+
+Notes:
+- The bridge reads 16 sensor values from the OPC UA server and sends the engineered feature vector to the inference API.
+- If your OPC UA server does not require authentication, leave OPC_USERNAME and OPC_PASSWORD blank.
+- If your server uses a different security policy or mode, update .env accordingly.

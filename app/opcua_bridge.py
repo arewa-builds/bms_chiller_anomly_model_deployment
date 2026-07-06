@@ -1,70 +1,73 @@
 """
 OPC-UA → LOF Inference Bridge
-==============================
-Reads 16 raw sensor values from the BMS OPC-UA server every 30 minutes,
-computes all 197 engineered features using ChillerPreprocessor, and posts
-the result to the LOF inference container.
+============================
+Reads 16 raw sensor values from a local OPC-UA server every 30 minutes,
+computes the engineered feature vector with ChillerPreprocessor, and posts
+the result to the LOF inference endpoint.
 
-Before running, fill in:
-  1. OPC_SERVER_URL  — your BMS OPC-UA endpoint
-  2. NODE_MAP        — OPC-UA node ID for each of the 16 raw sensors
-  3. SCALER_PATH     — path to scaler.pkl from the training artifacts folder
-  4. handle_anomaly()— add your notification channel (email, webhook, etc.)
+Typical local deployment:
+  - OPC server is running on the same machine as this script
+  - OPC server requires username/password authentication
+  - OPC server uses SignAndEncrypt security
+
+Configuration can be supplied with environment variables or edited below.
 """
 
 import asyncio
 import logging
-import httpx
-import numpy as np
+import os
 from datetime import datetime, timezone
-from asyncua import Client, Node
+from pathlib import Path
+
+import httpx
+from asyncua import Client
+
 from preprocessor import ChillerPreprocessor
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-OPC_SERVER_URL   = "opc.tcp://<BMS_SERVER_IP>:4840"      # ← fill in
-INFERENCE_URL    = "http://lof-chiller:8000/predict"
-SCALER_PATH      = "/app/model/scaler.pkl"                # ← mount scaler here
-POLL_INTERVAL_S  = 1800                                   # 30 minutes
+OPC_SERVER_URL = os.getenv("OPC_SERVER_URL", "opc.tcp://127.0.0.1:4840")
+OPC_USERNAME = os.getenv("OPC_USERNAME", "")
+OPC_PASSWORD = os.getenv("OPC_PASSWORD", "")
+OPC_SECURITY_POLICY = os.getenv("OPC_SECURITY_POLICY", "Basic256Sha256")
+OPC_SECURITY_MODE = os.getenv("OPC_SECURITY_MODE", "SignAndEncrypt")
+INFERENCE_URL = os.getenv("INFERENCE_URL", "http://127.0.0.1:8000/predict")
+SCALER_PATH = os.getenv("SCALER_PATH", str(Path(__file__).resolve().parent.parent / "model" / "scaler_model.onnx"))
+POLL_INTERVAL_S = int(os.getenv("POLL_INTERVAL_S", "1800"))
 
 # Map each canonical sensor name to its OPC-UA node ID.
-# Fill in the node IDs with your BMS engineer once available.
+# Replace the placeholder node IDs with the values from your OPC server.
 NODE_MAP: dict[str, str] = {
-    "CHW_Return"  : "ns=2;i=XXXX",   # Chiller_1_M_126_CHW_Return (°F)
-    "CHW_Supply"  : "ns=2;i=XXXX",   # Chiller_1_M_126_CHW_Supply (°F)
-    "RLA_L1"      : "ns=2;i=XXXX",   # Chiller_M126_L1_RLA (%)
-    "RLA_L2"      : "ns=2;i=XXXX",   # Chiller_M126_L2_RLA (%)
-    "RLA_L3"      : "ns=2;i=XXXX",   # Chiller_M126_L3_RLA (%)
-    "RLA_Avg"     : "ns=2;i=XXXX",   # Chiller_M126_Avg_RLA (%)
-    "CW_Return"   : "ns=2;i=XXXX",   # Chiller_1_M_126_CW_Return (°F)
-    "CW_Supply"   : "ns=2;i=XXXX",   # Chiller_1_M_126_CW_Supply (°F)
-    "PH1_FLOW"    : "ns=2;i=XXXX",   # PH_1_Flow (gal/min)
-    "PH2_FLOW"    : "ns=2;i=XXXX",   # PH_2_Flow (gal/min)
-    "FEEDBACK"    : "ns=2;i=XXXX",   # Chiller_M_126_Twr_C1_FB (%)
-    "SIGNAL"      : "ns=2;i=XXXX",   # Chiller_M_126_Twr_C1_Sig (%)
-    "CURRENT_L1"  : "ns=2;i=XXXX",   # Chiller_M126_L1_Current (A)
-    "CURRENT_L2"  : "ns=2;i=XXXX",   # Chiller_M126_L2_Current (A)
-    "CURRENT_L3"  : "ns=2;i=XXXX",   # Chiller_M126_L3_Current (A)
-    "WET_BULB"    : "ns=2;i=XXXX",   # OSA_Wet_Bulb_Temperature (°F)
+    "CHW_Return": "ns=2;i=XXXX",
+    "CHW_Supply": "ns=2;i=XXXX",
+    "RLA_L1": "ns=2;i=XXXX",
+    "RLA_L2": "ns=2;i=XXXX",
+    "RLA_L3": "ns=2;i=XXXX",
+    "RLA_Avg": "ns=2;i=XXXX",
+    "CW_Return": "ns=2;i=XXXX",
+    "CW_Supply": "ns=2;i=XXXX",
+    "PH1_FLOW": "ns=2;i=XXXX",
+    "PH2_FLOW": "ns=2;i=XXXX",
+    "FEEDBACK": "ns=2;i=XXXX",
+    "SIGNAL": "ns=2;i=XXXX",
+    "CURRENT_L1": "ns=2;i=XXXX",
+    "CURRENT_L2": "ns=2;i=XXXX",
+    "CURRENT_L3": "ns=2;i=XXXX",
+    "WET_BULB": "ns=2;i=XXXX",
 }
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("opcua-bridge")
 
 # ── Alert handler ─────────────────────────────────────────────────────────────
 
+
 def handle_anomaly(score: float, raw: dict, timestamp: datetime) -> None:
     """
     Called whenever the model flags an anomaly.
-    Extend with your notification channel:
-      - POST to a Teams / Slack / PagerDuty webhook
-      - Send email via smtplib
-      - Write an alarm flag back to an OPC-UA node
+    Extend this with your notification channel (Teams, Slack, email, etc.).
     """
     log.warning(
         f"⚠️  ANOMALY DETECTED | time={timestamp.isoformat()} | "
@@ -73,79 +76,99 @@ def handle_anomaly(score: float, raw: dict, timestamp: datetime) -> None:
         f"RLA_Avg={raw.get('RLA_Avg')} | "
         f"CW_Supply={raw.get('CW_Supply')}"
     )
-    # TODO: add notification here
 
-# ── OPC-UA read ───────────────────────────────────────────────────────────────
 
-async def read_sensors(client: Client) -> dict:
-    """Read all 16 raw sensor nodes and return as a dict."""
-    nodes: dict[str, Node] = {
-        name: client.get_node(node_id)
-        for name, node_id in NODE_MAP.items()
-    }
-    values = await asyncio.gather(*[n.read_value() for n in nodes.values()])
-    return {name: float(v) for name, v in zip(nodes.keys(), values)}
+# ── OPC-UA helpers ───────────────────────────────────────────────────────────
+
+async def connect_opcua() -> Client:
+    """Create a client configured for a secured local OPC UA endpoint."""
+    client = Client(OPC_SERVER_URL)
+
+    if OPC_USERNAME:
+        client.set_user(OPC_USERNAME)
+    if OPC_PASSWORD:
+        client.set_password(OPC_PASSWORD)
+
+    if OPC_SECURITY_POLICY and OPC_SECURITY_MODE:
+        security_string = f"{OPC_SECURITY_POLICY},{OPC_SECURITY_MODE}"
+        client.set_security_string(security_string)
+        log.info("Using OPC UA security settings: %s", security_string)
+
+    await client.connect()
+    return client
+
+
+async def read_sensors(client: Client) -> dict[str, float]:
+    """Read all configured OPC-UA nodes and return them as floats."""
+    nodes = {name: client.get_node(node_id) for name, node_id in NODE_MAP.items()}
+    values = await asyncio.gather(*[node.read_value() for node in nodes.values()])
+    return {name: float(value) for name, value in zip(nodes.keys(), values)}
+
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 async def run_bridge() -> None:
+    if not Path(SCALER_PATH).exists():
+        raise FileNotFoundError(f"Scaler file not found at {SCALER_PATH}. Set SCALER_PATH to a valid file.")
+
     preprocessor = ChillerPreprocessor(scaler_path=SCALER_PATH)
-    log.info(f"Connecting to OPC-UA server: {OPC_SERVER_URL}")
+    log.info("Connecting to OPC-UA server: %s", OPC_SERVER_URL)
 
-    async with Client(url=OPC_SERVER_URL) as client:
-        log.info("Connected. Starting 30-minute polling loop.")
+    client = await connect_opcua()
+    log.info("Connected. Starting polling loop.")
 
+    try:
         async with httpx.AsyncClient(timeout=15.0) as http:
             while True:
                 try:
                     timestamp = datetime.now(timezone.utc)
 
-                    # 1. Read raw sensors from BMS
                     raw = await read_sensors(client)
                     log.info(
-                        f"Read sensors | RLA_Avg={raw['RLA_Avg']:.1f}% | "
-                        f"CHW_Return={raw['CHW_Return']:.1f}°F | "
-                        f"CW_Supply={raw['CW_Supply']:.1f}°F"
+                        "Read sensors | RLA_Avg=%.1f%% | CHW_Return=%.1f°F | CW_Supply=%.1f°F",
+                        raw["RLA_Avg"],
+                        raw["CHW_Return"],
+                        raw["CW_Supply"],
                     )
 
-                    # 2. Update rolling buffer
                     preprocessor.update(timestamp, raw)
 
-                    # 3. Skip until buffer is warm (needs 24h of history)
                     if not preprocessor.is_warm():
                         remaining = preprocessor._buf.maxlen - len(preprocessor._buf)
                         log.info(
-                            f"Buffer warming up — {len(preprocessor._buf)}/{WIN_LONG} "
-                            f"readings collected ({remaining} more needed for 24h window)"
+                            "Buffer warming up — %d/%d readings collected (%d more needed for 24h window)",
+                            len(preprocessor._buf),
+                            48,
+                            remaining,
                         )
                         await asyncio.sleep(POLL_INTERVAL_S)
                         continue
 
-                    # 4. Compute 197-feature vector
                     features = preprocessor.get_feature_vector()
+                    if features is None:
+                        await asyncio.sleep(POLL_INTERVAL_S)
+                        continue
 
-                    # 5. Post to inference container
-                    resp = await http.post(
-                        INFERENCE_URL,
-                        json={"features": features[0].tolist()},
-                    )
+                    resp = await http.post(INFERENCE_URL, json={"features": features[0].tolist()})
                     resp.raise_for_status()
                     result = resp.json()
 
                     log.info(
-                        f"Scored | decision={result['decision_score']:.4f} | "
-                        f"anomaly={result['is_anomaly']} | "
-                        f"inference={result['inference_ms']}ms"
+                        "Scored | decision=%.4f | anomaly=%s | inference=%sms",
+                        result["decision_score"],
+                        result["is_anomaly"],
+                        result["inference_ms"],
                     )
 
-                    # 6. Alert if anomaly detected
                     if result["is_anomaly"]:
                         handle_anomaly(result["decision_score"], raw, timestamp)
 
                 except Exception as exc:
-                    log.error(f"Bridge error: {exc}", exc_info=True)
+                    log.error("Bridge error: %s", exc, exc_info=True)
 
                 await asyncio.sleep(POLL_INTERVAL_S)
+    finally:
+        await client.disconnect()
 
 
 if __name__ == "__main__":
