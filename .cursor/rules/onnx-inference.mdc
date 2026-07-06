@@ -1,0 +1,14 @@
+---
+description: ONNX Runtime inference and model deployment patterns for LOF chiller model
+globs: app/main.py,model/**,Dockerfile
+alwaysApply: false
+---
+
+- ONNX input name is `float_input`; shape is `(batch, 197)`; dtype `float32`.
+- Outputs: `label` (+1/-1), `scores` (decision score; threshold 0.0), `score_samples`.
+- Do not change `N_FEATURES` or input validation without re-exporting the ONNX model.
+- Load the ONNX session once at startup — never per-request.
+- Preprocessing and scaling belong in `ChillerPreprocessor`, not in `app/main.py`.
+- Pin `onnxruntime` version to match export environment (currently 1.18.0).
+- When debugging score drift, compare training vs deployment feature vectors numerically before retraining.
+- Report inference latency in milliseconds for production monitoring.
