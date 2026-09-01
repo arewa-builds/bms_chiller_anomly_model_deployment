@@ -8,9 +8,9 @@ Each flag returns an elevation status plus the measured value:
 
 ```json
 "derived_flags": {
-  "cw_approach_to_wb_elevated": {"elevated": true, "value": 8},
-  "flow_imbalance_pct_high": {"elevated": true, "value": 10},
-  "tower_tracking_error_abs_high": {"elevated": true, "value": 12}
+  "cw_approach_to_wb_elevated": {"elevated": true, "value": 8, "timestamp": "2026-09-01T14:00:00Z"},
+  "flow_imbalance_pct_high": {"elevated": true, "value": 10, "timestamp": "2026-09-01T14:00:00Z"},
+  "tower_tracking_error_abs_high": {"elevated": true, "value": 12, "timestamp": "2026-09-01T14:00:00Z"}
 }
 ```
 

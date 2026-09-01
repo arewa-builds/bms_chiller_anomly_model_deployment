@@ -146,4 +146,9 @@ def get_scenario(
     payload = deepcopy(DEMO_SCENARIOS[scenario])
     if asset_id:
         payload["asset_id"] = asset_id
+
+    reading_ts = payload["timestamp"]
+    for flag in payload.get("derived_flags", {}).values():
+        flag.setdefault("timestamp", reading_ts)
+
     return ChillerTelemetry.model_validate(payload)

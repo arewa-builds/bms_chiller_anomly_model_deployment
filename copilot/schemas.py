@@ -8,10 +8,11 @@ from pydantic import BaseModel, Field
 
 
 class DerivedFlag(BaseModel):
-    """A derived diagnostic flag with measured value and elevation status."""
+    """A derived diagnostic flag with measured value, elevation status, and reading time."""
 
     elevated: bool = Field(description="True when the value exceeds the alert threshold")
     value: float = Field(description="Measured value for this diagnostic indicator")
+    timestamp: str = Field(description="ISO-8601 timestamp when this flag was computed")
 
 
 class AnomalyStatus(BaseModel):

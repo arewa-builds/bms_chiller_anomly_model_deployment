@@ -37,7 +37,8 @@ def format_telemetry_block(telemetry: dict) -> str:
     for flag_name, flag in telemetry.get("derived_flags", {}).items():
         elevated = flag.get("elevated", False)
         value = flag.get("value")
-        lines.append(f"  {flag_name}: elevated={elevated}, value={value}")
+        ts = flag.get("timestamp", "unknown")
+        lines.append(f"  {flag_name}: elevated={elevated}, value={value}, timestamp={ts}")
 
     anomaly = telemetry.get("anomaly", {})
     lines.extend(
