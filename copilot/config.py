@@ -10,12 +10,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCUMENTS_DIR = REPO_ROOT / "data" / "documents"
 
 # ChromaDB
-# Mode: "embedded" (local files) or "server" (Chroma HTTP service — see docker compose)
+# Mode: embedded | server | cloud
+#   embedded → local files in ./chroma_db/  (default)
+#   server   → local Chroma HTTP service (docker compose)
+#   cloud    → Chroma Cloud (https://www.trychroma.com)
 CHROMA_MODE = os.getenv("CHROMA_MODE", "embedded")
 CHROMA_HOST = os.getenv("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8001"))
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", str(REPO_ROOT / "chroma_db"))
 CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "chiller_troubleshooting")
+
+# Chroma Cloud (required when CHROMA_MODE=cloud)
+# Get these from: Chroma dashboard → BMS database → Connect
+CHROMA_API_KEY = os.getenv("CHROMA_API_KEY", "")
+CHROMA_TENANT = os.getenv("CHROMA_TENANT", "")
+CHROMA_DATABASE = os.getenv("CHROMA_DATABASE", "BMS")
 
 # Chunking defaults (tune via evaluation in later steps)
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))

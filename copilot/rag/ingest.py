@@ -22,7 +22,11 @@ from copilot.config import (
     DOCUMENTS_DIR,
     EMBEDDING_MODEL,
 )
-from copilot.rag.chroma_client import delete_collection_if_exists, get_chroma_client
+from copilot.rag.chroma_client import (
+    delete_collection_if_exists,
+    get_chroma_client,
+    get_langchain_cloud_kwargs,
+)
 
 
 def _parse_frontmatter_metadata(text: str) -> dict:
@@ -94,12 +98,15 @@ def ingest(
     if reset:
         delete_collection_if_exists()
 
-    client = get_chroma_client()
+    cloud_kwargs = get_langchain_cloud_kwargs()
+    client = None if cloud_kwargs else get_chroma_client()
+
     vectorstore = Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
         collection_name=CHROMA_COLLECTION_NAME,
         client=client,
+        **cloud_kwargs,
     )
 
     return vectorstore
@@ -107,6 +114,13 @@ def ingest(
 
 def get_vectorstore() -> Chroma:
     """Open an existing ChromaDB collection (after ingest)."""
+    cloud_kwargs = get_langchain_cloud_kwargs()
+    if cloud_kwargs:
+        return Chroma(
+            collection_name=CHROMA_COLLECTION_NAME,
+            embedding_function=get_embeddings(),
+            **cloud_kwargs,
+        )
     return Chroma(
         collection_name=CHROMA_COLLECTION_NAME,
         embedding_function=get_embeddings(),
