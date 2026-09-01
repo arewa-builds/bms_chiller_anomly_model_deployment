@@ -17,11 +17,15 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from copilot.config import (
     CHROMA_COLLECTION_NAME,
-    CHROMA_PERSIST_DIR,
     CHUNK_OVERLAP,
     CHUNK_SIZE,
     DOCUMENTS_DIR,
     EMBEDDING_MODEL,
+)
+from copilot.rag.chroma_client import (
+    delete_collection_if_exists,
+    get_chroma_client,
+    get_langchain_cloud_kwargs,
 )
 
 
@@ -91,26 +95,18 @@ def ingest(
     chunks = split_documents(raw_docs)
     embeddings = get_embeddings()
 
-    persist_dir = Path(CHROMA_PERSIST_DIR)
-    persist_dir.mkdir(parents=True, exist_ok=True)
-
     if reset:
-        # Remove existing collection data so re-ingest is idempotent
-        vectorstore = Chroma(
-            collection_name=CHROMA_COLLECTION_NAME,
-            embedding_function=embeddings,
-            persist_directory=str(persist_dir),
-        )
-        try:
-            vectorstore.delete_collection()
-        except Exception:
-            pass
+        delete_collection_if_exists()
+
+    cloud_kwargs = get_langchain_cloud_kwargs()
+    client = None if cloud_kwargs else get_chroma_client()
 
     vectorstore = Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
         collection_name=CHROMA_COLLECTION_NAME,
-        persist_directory=str(persist_dir),
+        client=client,
+        **cloud_kwargs,
     )
 
     return vectorstore
@@ -118,10 +114,17 @@ def ingest(
 
 def get_vectorstore() -> Chroma:
     """Open an existing ChromaDB collection (after ingest)."""
+    cloud_kwargs = get_langchain_cloud_kwargs()
+    if cloud_kwargs:
+        return Chroma(
+            collection_name=CHROMA_COLLECTION_NAME,
+            embedding_function=get_embeddings(),
+            **cloud_kwargs,
+        )
     return Chroma(
         collection_name=CHROMA_COLLECTION_NAME,
         embedding_function=get_embeddings(),
-        persist_directory=CHROMA_PERSIST_DIR,
+        client=get_chroma_client(),
     )
 
 
