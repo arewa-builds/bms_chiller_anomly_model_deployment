@@ -1,10 +1,37 @@
-"""Pydantic schemas for Step 2 RAG responses."""
+"""Pydantic schemas for copilot RAG and telemetry responses."""
 
 from __future__ import annotations
 
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+class DerivedFlag(BaseModel):
+    """A derived diagnostic flag with measured value and elevation status."""
+
+    elevated: bool = Field(description="True when the value exceeds the alert threshold")
+    value: float = Field(description="Measured value for this diagnostic indicator")
+
+
+class AnomalyStatus(BaseModel):
+    """LOF model anomaly score for the current reading."""
+
+    is_anomaly: bool
+    decision_score: float
+    label: int
+
+
+class ChillerTelemetry(BaseModel):
+    """Live (or demo) chiller sensor snapshot for the troubleshooting copilot."""
+
+    asset_id: str
+    scenario: str
+    timestamp: str
+    description: str | None = None
+    anomaly: AnomalyStatus
+    raw_sensors: dict[str, float]
+    derived_flags: dict[str, DerivedFlag]
 
 
 class SourceCitation(BaseModel):
@@ -29,7 +56,7 @@ class TroubleshootingDiagnosis(BaseModel):
         description="Ranked list of likely causes based on evidence"
     )
     evidence: list[str] = Field(
-        description="Specific facts from retrieved documentation supporting the analysis"
+        description="Specific facts from retrieved documentation and telemetry"
     )
     recommended_investigation: list[str] = Field(
         description="Ordered investigation steps for the engineer"

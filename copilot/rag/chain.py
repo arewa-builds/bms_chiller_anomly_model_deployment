@@ -1,7 +1,7 @@
 """
-Step 2 — RAG chain: retrieve documentation + LLM structured diagnosis.
+RAG chain: telemetry + retrieve documentation + LLM structured diagnosis.
 
-No telemetry tool yet (Step 3). No LangGraph yet (Step 4).
+No LangGraph yet (Step 4).
 """
 
 from __future__ import annotations
@@ -11,9 +11,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from copilot.config import OPENAI_API_KEY, OPENAI_MODEL, RETRIEVAL_TOP_K
-from copilot.prompts import HUMAN_PROMPT, SYSTEM_PROMPT
+from copilot.prompts import HUMAN_PROMPT, SYSTEM_PROMPT, format_telemetry_block
 from copilot.rag.ingest import retrieve
-from copilot.schemas import SourceCitation, TroubleshootingDiagnosis
+from copilot.schemas import ChillerTelemetry, SourceCitation, TroubleshootingDiagnosis
+from copilot.tools.telemetry import get_chiller_telemetry
 
 
 def _require_openai_key() -> None:
@@ -76,30 +77,52 @@ def build_chain():
     return prompt | structured_llm
 
 
+def fetch_telemetry(
+    asset_id: str | None = None,
+    scenario: str | None = None,
+) -> ChillerTelemetry:
+    """Fetch demo telemetry for the given asset and scenario."""
+    resolved_asset = asset_id or "Chiller-03"
+    return get_chiller_telemetry(resolved_asset, scenario=scenario)
+
+
 def troubleshoot(
     question: str,
     *,
     asset_id: str | None = None,
     top_k: int | None = None,
+    scenario: str | None = None,
+    include_telemetry: bool = True,
 ) -> TroubleshootingDiagnosis:
     """
     Run the full RAG troubleshooting pipeline.
 
-    1. Retrieve relevant documentation from ChromaDB
-    2. Format context with source labels
-    3. Call LLM with structured output schema
+    1. Fetch current telemetry (demo scenarios)
+    2. Retrieve relevant documentation from ChromaDB
+    3. Format context with source labels
+    4. Call LLM with structured output schema
     """
+    telemetry: ChillerTelemetry | None = None
+    telemetry_block = "(No telemetry provided.)"
+    if include_telemetry:
+        telemetry = fetch_telemetry(asset_id=asset_id, scenario=scenario)
+        telemetry_block = "Current telemetry:\n" + format_telemetry_block(
+            telemetry.model_dump()
+        )
+
     context, docs = retrieve_context(question, top_k=top_k)
 
     asset_hint = ""
-    if asset_id:
-        asset_hint = f"Asset context: {asset_id}"
+    resolved_asset = asset_id or (telemetry.asset_id if telemetry else None)
+    if resolved_asset:
+        asset_hint = f"Asset context: {resolved_asset}"
 
     chain = build_chain()
     diagnosis: TroubleshootingDiagnosis = chain.invoke(
         {
             "question": question,
             "asset_hint": asset_hint,
+            "telemetry_block": telemetry_block,
             "context": context,
         }
     )
