@@ -9,6 +9,6 @@ venv/
 
 # Secrets
 .env
-
+.env.copilot
 # Model cache (sentence-transformers downloads)
 .cache/
