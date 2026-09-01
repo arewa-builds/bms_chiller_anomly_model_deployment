@@ -14,7 +14,8 @@ from pathlib import Path
 # Allow running from repo root without installing the package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from copilot.config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR, DOCUMENTS_DIR
+from copilot.config import CHROMA_COLLECTION_NAME, DOCUMENTS_DIR
+from copilot.rag.chroma_client import connection_info
 from copilot.rag.ingest import ingest, load_documents, split_documents
 
 
@@ -28,7 +29,7 @@ def main() -> None:
     args = parser.parse_args()
 
     print(f"Documents dir : {DOCUMENTS_DIR}")
-    print(f"Chroma persist: {CHROMA_PERSIST_DIR}")
+    print(f"Chroma        : {connection_info()}")
     print(f"Collection    : {CHROMA_COLLECTION_NAME}")
     print()
 

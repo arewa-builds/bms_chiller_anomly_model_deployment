@@ -10,6 +10,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCUMENTS_DIR = REPO_ROOT / "data" / "documents"
 
 # ChromaDB
+# Mode: "embedded" (local files) or "server" (Chroma HTTP service — see docker compose)
+CHROMA_MODE = os.getenv("CHROMA_MODE", "embedded")
+CHROMA_HOST = os.getenv("CHROMA_HOST", "localhost")
+CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8001"))
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", str(REPO_ROOT / "chroma_db"))
 CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "chiller_troubleshooting")
 
