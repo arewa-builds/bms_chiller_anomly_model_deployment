@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Ask the troubleshooting copilot (RAG + telemetry + structured LLM output).
+Ask the troubleshooting copilot (RAG + telemetry + LangGraph workflow).
 
 Usage:
     python3 scripts/ask_copilot.py "Chiller-03 has an elevated anomaly score. What should I investigate?"
-    python3 scripts/ask_copilot.py --asset Chiller-03 "elevated CW approach temperature"
-    python3 scripts/ask_copilot.py --scenario cw_degradation "what should I check?"
+    python3 scripts/ask_copilot.py --asset Chiller-03 --scenario cw_degradation "what should I check?"
     python3 scripts/ask_copilot.py --telemetry-only --scenario cw_degradation
+    python3 scripts/ask_copilot.py --linear --asset Chiller-03 "elevated CW approach"
     python3 scripts/ask_copilot.py --retrieve-only "tower tracking error"
 """
 
@@ -23,11 +23,68 @@ load_env_copilot()
 
 from copilot.rag.chain import fetch_telemetry, retrieve_context, troubleshoot
 from copilot.tools.telemetry import list_scenarios
+from copilot.workflow.graph import run_workflow
+
+
+def _print_diagnosis(diagnosis) -> None:
+    print("=" * 60)
+    print(f"Asset       : {diagnosis.asset}")
+    print(f"Condition   : {diagnosis.condition}")
+    print(f"Confidence  : {diagnosis.confidence}")
+    print(f"Escalation  : {diagnosis.escalation_required}")
+    print("=" * 60)
+
+    print("\nPotential causes:")
+    for i, cause in enumerate(diagnosis.potential_causes, 1):
+        print(f"  {i}. {cause}")
+
+    print("\nEvidence:")
+    for item in diagnosis.evidence:
+        print(f"  • {item}")
+
+    print("\nRecommended investigation:")
+    for i, step in enumerate(diagnosis.recommended_investigation, 1):
+        print(f"  {i}. {step}")
+
+    print("\nSources:")
+    for src in diagnosis.sources:
+        section = f" — {src.section}" if src.section else ""
+        print(f"  • {src.title}{section}")
+
+
+def _print_workflow(result) -> None:
+    print("=" * 60)
+    print(f"Route       : {result.route}")
+    print(f"Triage      : {result.triage_reason}")
+    print(f"Escalated   : {result.escalated}")
+    print("=" * 60)
+    print(f"Asset       : {result.diagnosis.asset}")
+    print(f"Condition   : {result.diagnosis.condition}")
+    print(f"Confidence  : {result.diagnosis.confidence}")
+    print(f"Escalation  : {result.diagnosis.escalation_required}")
+    print("=" * 60)
+
+    print("\nPotential causes:")
+    for i, cause in enumerate(result.diagnosis.potential_causes, 1):
+        print(f"  {i}. {cause}")
+
+    print("\nEvidence:")
+    for item in result.diagnosis.evidence:
+        print(f"  • {item}")
+
+    print("\nRecommended investigation:")
+    for i, step in enumerate(result.diagnosis.recommended_investigation, 1):
+        print(f"  {i}. {step}")
+
+    print("\nSources:")
+    for src in result.diagnosis.sources:
+        section = f" — {src.section}" if src.section else ""
+        print(f"  • {src.title}{section}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Manufacturing AI Troubleshooting Copilot (Step 3: RAG + telemetry)"
+        description="Manufacturing AI Troubleshooting Copilot (Step 4: LangGraph workflow)"
     )
     parser.add_argument("question", nargs="?", help="Engineer troubleshooting question")
     parser.add_argument("--asset", default=None, help="Asset ID, e.g. Chiller-03")
@@ -46,6 +103,11 @@ def main() -> None:
         "--retrieve-only",
         action="store_true",
         help="Show retrieved docs only (no LLM call)",
+    )
+    parser.add_argument(
+        "--linear",
+        action="store_true",
+        help="Use Step 3 linear RAG chain instead of LangGraph workflow",
     )
     parser.add_argument("--json", action="store_true", help="Output diagnosis as JSON")
     args = parser.parse_args()
@@ -68,39 +130,29 @@ def main() -> None:
             print(f"\n({len(docs)} chunks retrieved)")
             return
 
-        diagnosis = troubleshoot(
+        if args.linear:
+            diagnosis = troubleshoot(
+                args.question,
+                asset_id=args.asset,
+                scenario=args.scenario,
+            )
+            if args.json:
+                print(json.dumps(diagnosis.model_dump(), indent=2))
+                return
+            _print_diagnosis(diagnosis)
+            return
+
+        result = run_workflow(
             args.question,
             asset_id=args.asset,
             scenario=args.scenario,
         )
 
         if args.json:
-            print(json.dumps(diagnosis.model_dump(), indent=2))
+            print(json.dumps(result.model_dump(), indent=2))
             return
 
-        print("=" * 60)
-        print(f"Asset       : {diagnosis.asset}")
-        print(f"Condition   : {diagnosis.condition}")
-        print(f"Confidence  : {diagnosis.confidence}")
-        print(f"Escalation  : {diagnosis.escalation_required}")
-        print("=" * 60)
-
-        print("\nPotential causes:")
-        for i, cause in enumerate(diagnosis.potential_causes, 1):
-            print(f"  {i}. {cause}")
-
-        print("\nEvidence:")
-        for item in diagnosis.evidence:
-            print(f"  • {item}")
-
-        print("\nRecommended investigation:")
-        for i, step in enumerate(diagnosis.recommended_investigation, 1):
-            print(f"  {i}. {step}")
-
-        print("\nSources:")
-        for src in diagnosis.sources:
-            section = f" — {src.section}" if src.section else ""
-            print(f"  • {src.title}{section}")
+        _print_workflow(result)
 
     except ValueError as exc:
         print(f"Configuration error:\n{exc}", file=sys.stderr)

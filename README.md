@@ -182,6 +182,19 @@ Demo scenarios: `cw_degradation`, `flow_restriction`, `normal`.
 
 See [`copilot/STEP3_README.md`](copilot/STEP3_README.md).
 
+### Step 4 — LangGraph workflow with routing and escalation
+
+```bash
+# Normal route — no LLM call
+python3 scripts/ask_copilot.py --scenario normal "confirm chiller health"
+
+# Anomaly route — telemetry + RAG + conditional escalation
+python3 scripts/ask_copilot.py --json --scenario cw_degradation \
+  "what should I investigate?"
+```
+
+See [`copilot/STEP4_README.md`](copilot/STEP4_README.md).
+
 ### Copilot smoke test (all steps)
 
 ```bash
@@ -288,5 +301,5 @@ The copilot returns a `TroubleshootingDiagnosis` JSON object:
 | 1 | Done | Knowledge base ingestion + ChromaDB retrieval |
 | 2 | Done | RAG chain with structured LLM output |
 | 3 | Done | Telemetry tool with derived flags |
-| 4 | Planned | LangGraph workflow with conditional routing and escalation |
+| 4 | Done | LangGraph workflow with conditional routing and escalation |
 | 5 | Planned | FastAPI copilot service + docker-compose integration |
