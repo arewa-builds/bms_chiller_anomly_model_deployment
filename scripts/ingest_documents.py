@@ -20,16 +20,8 @@ from pathlib import Path
 # Allow running from repo root without installing the package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Load .env.copilot if present (optional)
-_env_file = Path(__file__).resolve().parent.parent / ".env.copilot"
-if _env_file.exists():
-    for line in _env_file.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, _, value = line.partition("=")
-            import os
-            os.environ.setdefault(key.strip(), value.strip())
-
+# Load .env.copilot via the shared config loader so values are normalized
+# (e.g., CHROMA_MODE="cloud" becomes "cloud" instead of '"cloud"').
 from copilot.config import CHROMA_COLLECTION_NAME, CHROMA_MODE, DOCUMENTS_DIR
 from copilot.rag.chroma_client import connection_info
 from copilot.rag.ingest import ingest, load_documents, split_documents
