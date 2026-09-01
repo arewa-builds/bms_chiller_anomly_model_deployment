@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Step 2 — Ask the troubleshooting copilot (RAG + structured LLM output).
+Ask the troubleshooting copilot (RAG + telemetry + structured LLM output).
 
 Usage:
     python3 scripts/ask_copilot.py "Chiller-03 has an elevated anomaly score. What should I investigate?"
     python3 scripts/ask_copilot.py --asset Chiller-03 "elevated CW approach temperature"
+    python3 scripts/ask_copilot.py --scenario cw_degradation "what should I check?"
+    python3 scripts/ask_copilot.py --telemetry-only --scenario cw_degradation
     python3 scripts/ask_copilot.py --retrieve-only "tower tracking error"
 """
 
@@ -19,15 +21,27 @@ from copilot.env_utils import load_env_copilot
 
 load_env_copilot()
 
-from copilot.rag.chain import retrieve_context, troubleshoot
+from copilot.rag.chain import fetch_telemetry, retrieve_context, troubleshoot
+from copilot.tools.telemetry import list_scenarios
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Manufacturing AI Troubleshooting Copilot (Step 2 RAG)"
+        description="Manufacturing AI Troubleshooting Copilot (Step 3: RAG + telemetry)"
     )
-    parser.add_argument("question", help="Engineer troubleshooting question")
+    parser.add_argument("question", nargs="?", help="Engineer troubleshooting question")
     parser.add_argument("--asset", default=None, help="Asset ID, e.g. Chiller-03")
+    parser.add_argument(
+        "--scenario",
+        default=None,
+        choices=list_scenarios(),
+        help="Demo telemetry scenario (default: normal, or resolved from asset alias)",
+    )
+    parser.add_argument(
+        "--telemetry-only",
+        action="store_true",
+        help="Print telemetry JSON only (no retrieval or LLM call)",
+    )
     parser.add_argument(
         "--retrieve-only",
         action="store_true",
@@ -36,15 +50,29 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="Output diagnosis as JSON")
     args = parser.parse_args()
 
+    if not args.question and not args.telemetry_only:
+        parser.error("question is required unless --telemetry-only is set")
+
     try:
+        if args.telemetry_only:
+            telemetry = fetch_telemetry(asset_id=args.asset, scenario=args.scenario)
+            print(json.dumps(telemetry.model_dump(), indent=2))
+            return
+
         if args.retrieve_only:
+            if not args.question:
+                parser.error("question is required for --retrieve-only")
             context, docs = retrieve_context(args.question)
             print("=== Retrieved context ===\n")
             print(context)
             print(f"\n({len(docs)} chunks retrieved)")
             return
 
-        diagnosis = troubleshoot(args.question, asset_id=args.asset)
+        diagnosis = troubleshoot(
+            args.question,
+            asset_id=args.asset,
+            scenario=args.scenario,
+        )
 
         if args.json:
             print(json.dumps(diagnosis.model_dump(), indent=2))
