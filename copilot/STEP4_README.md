@@ -44,22 +44,51 @@ cp .env.copilot.example .env.copilot
 python3 scripts/ingest_documents.py
 ```
 
+LangGraph is the **default** path in `ask_copilot.py`. Use `--linear` to run the Step 3 chain instead.
+
 ---
 
 ## Testing CLI commands
 
-### 1. Normal route (no LLM — fastest)
+Run these in order to verify Step 4 end-to-end.
 
-Uses `--scenario normal` to skip retrieval and LLM:
+**Prerequisites**
+
+- Step 1 complete: `python3 scripts/ingest_documents.py`
+- `.env.copilot` configured (only needed for `diagnose` / `escalate` routes)
+- `OPENAI_API_KEY` set for any command that hits the LLM
+
+| Route | Scenario | API key needed? | LLM called? |
+|-------|----------|-----------------|-------------|
+| `normal` | `normal` | No | No |
+| `diagnose` | `cw_degradation`, `flow_restriction` | Yes | Yes |
+| `escalate` | any diagnose route where confidence is low | Yes | Yes (then escalate node) |
+
+### 1. Normal route (no LLM, no retrieval)
 
 ```bash
 python3 scripts/ask_copilot.py --scenario normal \
   "confirm chiller health"
 ```
 
-Expected: `Route: normal`, no escalation, high confidence ack.
+**Expected output:**
 
-### 2. Diagnose route (telemetry + RAG + LLM)
+- `Route: normal`
+- `Triage: No LOF anomaly and no elevated derived flags — steady-state operation`
+- `Escalated: False`
+- `Confidence: high`
+- No `Sources` listed (retrieval was skipped)
+
+JSON:
+
+```bash
+python3 scripts/ask_copilot.py --json --scenario normal \
+  "confirm chiller health"
+```
+
+Verify JSON fields: `route`, `triage_reason`, `escalated`, `telemetry`, `diagnosis`.
+
+### 2. Diagnose route (telemetry + retrieval + LLM)
 
 ```bash
 python3 scripts/ask_copilot.py --scenario cw_degradation \
@@ -69,25 +98,82 @@ python3 scripts/ask_copilot.py --scenario flow_restriction \
   "condenser flow is low — what should I check?"
 ```
 
-Expected: `Route: diagnose` (or `escalate` if confidence is low).
+**Expected output:**
 
-### 3. JSON output (includes routing metadata)
+- `Route: diagnose` or `escalate` (depends on LLM confidence)
+- `Triage` mentions LOF anomaly and/or elevated derived flags
+- `potential_causes`, `evidence`, and `recommended_investigation` populated
+- `Sources` lists retrieved manuals/SOPs
+
+JSON with full workflow metadata:
 
 ```bash
 python3 scripts/ask_copilot.py --json --scenario cw_degradation \
   "elevated CW approach and tower tracking error"
 ```
 
-Returns `WorkflowResult` with `route`, `triage_reason`, `escalated`, `telemetry`, and `diagnosis`.
+### 3. Escalation route
 
-### 4. Compare with Step 3 linear chain
+Escalation is triggered automatically when the LLM returns low confidence, sets `escalation_required`, or when no docs are retrieved.
+
+To observe escalation, run a diagnose-route scenario and check output:
 
 ```bash
+python3 scripts/ask_copilot.py --json --scenario cw_degradation \
+  "what should I investigate?"
+```
+
+**Expected when escalated:**
+
+- `route: "escalate"` or `escalated: true`
+- `escalation_required: true` in `diagnosis`
+- First `recommended_investigation` step starts with `ESCALATE:`
+
+### 4. Compare LangGraph vs Step 3 linear chain
+
+```bash
+# Step 4 — LangGraph (default)
+python3 scripts/ask_copilot.py --scenario cw_degradation \
+  "elevated CW approach"
+
+# Step 3 — linear chain (no routing)
 python3 scripts/ask_copilot.py --linear --scenario cw_degradation \
   "elevated CW approach"
 ```
 
-The `--linear` flag bypasses LangGraph and uses the Step 3 `troubleshoot()` chain directly.
+Linear mode always calls the LLM even for `normal` scenarios. LangGraph short-circuits normal operation.
+
+### 5. Triage-only verification (no CLI flag — Python)
+
+```bash
+python3 -c "
+from copilot.tools.telemetry import get_chiller_telemetry
+from copilot.workflow.triage import triage_telemetry
+for s in ['normal', 'cw_degradation', 'flow_restriction']:
+    t = get_chiller_telemetry('Chiller-03', scenario=s)
+    print(s, '->', triage_telemetry(t))
+"
+```
+
+**Expected:**
+
+```
+normal -> ('normal', 'No LOF anomaly and no elevated derived flags ...')
+cw_degradation -> ('diagnose', 'LOF anomaly with elevated flags: ...')
+flow_restriction -> ('diagnose', 'LOF anomaly with elevated flags: flow_imbalance_pct_high')
+```
+
+### 6. Graph compilation smoke test
+
+```bash
+python3 -c "
+from copilot.workflow.graph import build_workflow
+g = build_workflow()
+print('nodes:', list(g.get_graph().nodes))
+"
+```
+
+**Expected nodes:** `fetch_telemetry`, `triage`, `normal_ack`, `retrieve`, `diagnose`, `escalate`
 
 ### Quick smoke test
 
@@ -103,6 +189,15 @@ python3 scripts/ask_copilot.py --scenario normal "health check"
 python3 scripts/ask_copilot.py --json --scenario cw_degradation \
   "what should I investigate?"
 ```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `Configuration error: OPENAI_API_KEY` | Add key to `.env.copilot` (only needed for diagnose route) |
+| `No relevant documentation retrieved` | Run `python3 scripts/ingest_documents.py` |
+| Always routes to `diagnose` on normal | Pass `--scenario normal` explicitly |
+| Want Step 3 behavior | Add `--linear` flag |
 
 ---
 
