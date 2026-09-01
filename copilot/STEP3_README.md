@@ -110,3 +110,7 @@ python3 scripts/ask_copilot.py --asset Chiller-03 --scenario cw_degradation \
 - `copilot/schemas.py` — `DerivedFlag`, `ChillerTelemetry` models
 - `copilot/rag/chain.py` — fetches telemetry before retrieval
 - `copilot/prompts.py` — includes telemetry block in the human prompt
+
+## Next step (not implemented yet)
+
+Step 4: LangGraph workflow with conditional routing and escalation — see [`STEP4_README.md`](STEP4_README.md).

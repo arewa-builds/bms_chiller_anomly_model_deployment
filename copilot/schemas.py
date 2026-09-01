@@ -72,3 +72,18 @@ class TroubleshootingDiagnosis(BaseModel):
         default=False,
         description="True if evidence is insufficient and a senior engineer should review",
     )
+
+
+class WorkflowResult(BaseModel):
+    """Full copilot workflow output including routing metadata (Step 4)."""
+
+    route: Literal["normal", "diagnose", "escalate"] = Field(
+        description="Workflow path taken after telemetry triage and post-diagnosis checks"
+    )
+    triage_reason: str = Field(description="Why the workflow chose this route")
+    escalated: bool = Field(
+        default=False,
+        description="True when the escalate node ran before returning",
+    )
+    telemetry: ChillerTelemetry
+    diagnosis: TroubleshootingDiagnosis

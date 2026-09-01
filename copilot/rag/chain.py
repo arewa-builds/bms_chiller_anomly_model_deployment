@@ -1,7 +1,7 @@
 """
 RAG chain: telemetry + retrieve documentation + LLM structured diagnosis.
 
-No LangGraph yet (Step 4).
+For LangGraph routing and escalation, see ``copilot.workflow.graph`` (Step 4).
 """
 
 from __future__ import annotations
