@@ -33,6 +33,10 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "150"))
 # Retrieval defaults
 RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "4"))
 
+# LLM (Step 2 — required for RAG chain)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
 # Local embedding model (no API key required for Step 1)
 EMBEDDING_MODEL = os.getenv(
     "EMBEDDING_MODEL",
