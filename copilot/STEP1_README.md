@@ -137,7 +137,7 @@ Refresh your collection page — you should see 13 documents/chunks.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `CHROMA_MODE` | `embedded` | `embedded` or `server` |
+| `CHROMA_MODE` | `embedded` | `embedded`, `server`, or `cloud` |
 | `CHROMA_HOST` | `localhost` | Server hostname |
 | `CHROMA_PORT` | `8001` | Server port (8001 avoids conflict with chiller API on 8000) |
 | Collection name | `chiller_troubleshooting` | Your vector collection |

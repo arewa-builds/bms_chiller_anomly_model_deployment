@@ -1,8 +1,9 @@
 # Step 1 — Copilot / RAG dependencies (install separately from inference stack)
-langchain==0.3.13
-langchain-community==0.3.13
-langchain-chroma==0.1.4
-langchain-text-splitters==0.3.4
-langchain-huggingface==0.1.2
-chromadb==0.5.23
+# chromadb 1.5.x is required for Chroma Cloud API compatibility.
+chromadb==1.5.9
+langchain==1.3.18
+langchain-chroma==0.2.6
+langchain-community==0.4.2
+langchain-text-splitters==1.1.2
+langchain-huggingface==1.2.2
 sentence-transformers==3.3.1

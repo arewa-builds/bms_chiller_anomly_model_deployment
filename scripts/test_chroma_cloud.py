@@ -3,7 +3,6 @@
 Verify Chroma Cloud connection and show collection status.
 
 Usage:
-    export $(grep -v '^#' .env.copilot | xargs)
     python3 scripts/test_chroma_cloud.py
 """
 
@@ -12,6 +11,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from copilot.env_utils import load_env_copilot
+
+load_env_copilot()
+
 from copilot.config import CHROMA_COLLECTION_NAME, CHROMA_DATABASE, CHROMA_MODE
 from copilot.rag.chroma_client import connection_info, get_chroma_client
 
@@ -19,11 +22,16 @@ from copilot.rag.chroma_client import connection_info, get_chroma_client
 def main() -> None:
     if CHROMA_MODE != "cloud":
         print(f"CHROMA_MODE is '{CHROMA_MODE}', not 'cloud'.")
-        print("Set CHROMA_MODE=cloud in .env.copilot and export the variables.")
+        print("Set CHROMA_MODE=cloud in .env.copilot.")
         sys.exit(1)
 
     print(f"Connecting to {connection_info()} ...")
-    client = get_chroma_client()
+
+    try:
+        client = get_chroma_client()
+    except ValueError as exc:
+        print(f"Configuration error:\n{exc}", file=sys.stderr)
+        sys.exit(1)
 
     collections = client.list_collections()
     names = [c.name for c in collections]
