@@ -27,13 +27,13 @@ Asset aliases (when `--scenario` is omitted):
 - `Chiller-03`, `M126` → `cw_degradation`
 - `Chiller-03-normal` → `normal`
 
-<<<<<<< HEAD
-=======
 ---
 
 ## Testing CLI commands
 
 Prerequisite: complete Step 1 ingestion and set `OPENAI_API_KEY` in `.env.copilot` for full diagnosis tests.
+
+Use `--linear` to run the Step 3 chain without LangGraph routing (Step 4 is the default).
 
 ### 1. Telemetry only (no retrieval, no LLM)
 
@@ -53,13 +53,13 @@ python3 scripts/ask_copilot.py --telemetry-only --asset Chiller-03-normal
 ### 2. Full diagnosis with telemetry + RAG
 
 ```bash
-python3 scripts/ask_copilot.py --asset Chiller-03 --scenario cw_degradation \
+python3 scripts/ask_copilot.py --linear --asset Chiller-03 --scenario cw_degradation \
   "Chiller-03 has elevated anomaly score. What should I investigate?"
 
-python3 scripts/ask_copilot.py --scenario flow_restriction \
+python3 scripts/ask_copilot.py --linear --scenario flow_restriction \
   "condenser flow is low and headers are imbalanced — what should I check?"
 
-python3 scripts/ask_copilot.py --scenario normal \
+python3 scripts/ask_copilot.py --linear --scenario normal \
   "confirm this chiller looks healthy"
 ```
 
@@ -68,7 +68,7 @@ python3 scripts/ask_copilot.py --scenario normal \
 ```bash
 python3 scripts/ask_copilot.py --telemetry-only --scenario cw_degradation --json
 
-python3 scripts/ask_copilot.py --json --asset Chiller-03 --scenario cw_degradation \
+python3 scripts/ask_copilot.py --linear --json --asset Chiller-03 --scenario cw_degradation \
   "elevated CW approach and tower tracking error"
 ```
 
@@ -85,23 +85,11 @@ pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot   # add OPENAI_API_KEY + Chroma creds
 python3 scripts/ingest_documents.py
 python3 scripts/ask_copilot.py --telemetry-only --scenario cw_degradation
-python3 scripts/ask_copilot.py --json --asset Chiller-03 --scenario cw_degradation \
+python3 scripts/ask_copilot.py --linear --json --asset Chiller-03 --scenario cw_degradation \
   "Chiller-03 has elevated anomaly score. What should I investigate?"
 ```
 
 ---
-
->>>>>>> 941aa2022168cc3c2a441a79b0ba0770666b6fc7
-## Usage
-
-```bash
-# Telemetry only (JSON)
-python3 scripts/ask_copilot.py --telemetry-only --scenario cw_degradation
-
-# Full diagnosis with telemetry + RAG
-python3 scripts/ask_copilot.py --asset Chiller-03 --scenario cw_degradation \
-  "Chiller-03 has elevated anomaly score. What should I investigate?"
-```
 
 ## Files
 
@@ -111,6 +99,6 @@ python3 scripts/ask_copilot.py --asset Chiller-03 --scenario cw_degradation \
 - `copilot/rag/chain.py` — fetches telemetry before retrieval
 - `copilot/prompts.py` — includes telemetry block in the human prompt
 
-## Next step (not implemented yet)
+## Next step
 
 Step 4: LangGraph workflow with conditional routing and escalation — see [`STEP4_README.md`](STEP4_README.md).

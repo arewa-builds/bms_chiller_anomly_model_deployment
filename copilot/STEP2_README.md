@@ -2,11 +2,7 @@
 
 Step 2 adds a **LangChain RAG chain** that retrieves engineering documentation from ChromaDB and produces a **structured troubleshooting diagnosis** using an OpenAI LLM.
 
-<<<<<<< HEAD
-No telemetry tool yet (Step 3). No LangGraph yet (Step 4).
-=======
-No LangGraph yet (Step 4). Telemetry is added in Step 3.
->>>>>>> 941aa2022168cc3c2a441a79b0ba0770666b6fc7
+Telemetry is added in Step 3. LangGraph routing is added in Step 4.
 
 ## Architecture
 
@@ -40,13 +36,13 @@ cp .env.copilot.example .env.copilot
 # Fill in Chroma Cloud credentials AND OPENAI_API_KEY
 ```
 
-<<<<<<< HEAD
-=======
 Prerequisite: complete Step 1 ingestion first (`python3 scripts/ingest_documents.py`).
 
 ---
 
 ## Testing CLI commands
+
+Use `--linear` on `ask_copilot.py` to run this Step 2 chain directly (Step 4 workflow is the default).
 
 ### 1. Retrieval only (no OpenAI cost — validates Step 1 + retriever)
 
@@ -65,11 +61,11 @@ python3 scripts/test_retrieval.py "elevated condenser water approach"
 ### 2. Full RAG diagnosis (requires `OPENAI_API_KEY`)
 
 ```bash
-python3 scripts/ask_copilot.py \
+python3 scripts/ask_copilot.py --linear \
   --asset Chiller-03 \
   "Chiller-03 has an elevated anomaly score. What should I investigate?"
 
-python3 scripts/ask_copilot.py \
+python3 scripts/ask_copilot.py --linear \
   --asset Chiller-03 \
   "elevated CW approach to wet bulb temperature"
 ```
@@ -77,10 +73,10 @@ python3 scripts/ask_copilot.py \
 ### 3. JSON output (machine-readable diagnosis)
 
 ```bash
-python3 scripts/ask_copilot.py --json --asset Chiller-03 \
+python3 scripts/ask_copilot.py --linear --json --asset Chiller-03 \
   "elevated CW approach to wet bulb"
 
-python3 scripts/ask_copilot.py --json \
+python3 scripts/ask_copilot.py --linear --json \
   "What should I check when tower tracking error is high?"
 ```
 
@@ -91,35 +87,11 @@ pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot   # add OPENAI_API_KEY + Chroma creds
 python3 scripts/ingest_documents.py
 python3 scripts/ask_copilot.py --retrieve-only "elevated condenser water approach"
-python3 scripts/ask_copilot.py --json --asset Chiller-03 \
+python3 scripts/ask_copilot.py --linear --json --asset Chiller-03 \
   "Chiller-03 has an elevated anomaly score. What should I investigate?"
 ```
 
 ---
-
->>>>>>> 941aa2022168cc3c2a441a79b0ba0770666b6fc7
-## Usage
-
-### Retrieve only (no API cost — tests Step 1 + retrieval)
-
-```bash
-python3 scripts/ask_copilot.py --retrieve-only "elevated condenser water approach"
-```
-
-### Full RAG diagnosis
-
-```bash
-python3 scripts/ask_copilot.py \
-  --asset Chiller-03 \
-  "Chiller-03 has an elevated anomaly score. What should I investigate?"
-```
-
-### JSON output
-
-```bash
-python3 scripts/ask_copilot.py --json --asset Chiller-03 \
-  "elevated CW approach to wet bulb"
-```
 
 ## Structured output fields
 
@@ -141,10 +113,6 @@ python3 scripts/ask_copilot.py --json --asset Chiller-03 \
 - "Grounding rules require the LLM to cite retrieved sources and escalate when evidence is weak."
 - "I used LangChain for prompt composition and structured output — not for a single API call I'd use the SDK directly."
 
-## Next step (not implemented yet)
+## Next step
 
-<<<<<<< HEAD
-Step 3: Telemetry tool — bring live chiller sensor readings and anomaly scores into the prompt.
-=======
-Step 3: Telemetry tool — bring chiller sensor readings and anomaly scores into the prompt.
->>>>>>> 941aa2022168cc3c2a441a79b0ba0770666b6fc7
+Step 3: Telemetry tool — see [`STEP3_README.md`](STEP3_README.md).
