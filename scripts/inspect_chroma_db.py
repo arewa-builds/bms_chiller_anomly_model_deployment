@@ -165,7 +165,7 @@ def main() -> None:
     print(f"  Connection : {connection}")
     print(f"  Collection : {CHROMA_COLLECTION_NAME}")
     print(f"  Chunks     : {len(ids)}")
-    if embeddings and embeddings[0]:
+    if embeddings is not None and len(embeddings) > 0 and embeddings[0] is not None:
         print(f"  Vector dim : {len(embeddings[0])}")
     print("=" * 70)
 
