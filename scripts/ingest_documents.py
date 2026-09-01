@@ -8,7 +8,6 @@ Usage:
 
 Chroma Cloud:
     cp .env.copilot.example .env.copilot   # fill in API key + tenant
-    export $(grep -v '^#' .env.copilot | xargs)
     python3 scripts/ingest_documents.py
     python3 scripts/test_chroma_cloud.py
 """
@@ -17,11 +16,12 @@ import argparse
 import sys
 from pathlib import Path
 
-# Allow running from repo root without installing the package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Load .env.copilot via the shared config loader so values are normalized
-# (e.g., CHROMA_MODE="cloud" becomes "cloud" instead of '"cloud"').
+from copilot.env_utils import load_env_copilot
+
+load_env_copilot()
+
 from copilot.config import CHROMA_COLLECTION_NAME, CHROMA_MODE, DOCUMENTS_DIR
 from copilot.rag.chroma_client import connection_info
 from copilot.rag.ingest import ingest, load_documents, split_documents
@@ -43,12 +43,17 @@ def main() -> None:
         print("Target        : Chroma Cloud (BMS database)")
     print()
 
-    raw = load_documents()
-    chunks = split_documents(raw)
-    print(f"Loaded {len(raw)} documents → {len(chunks)} chunks")
-    print()
+    try:
+        raw = load_documents()
+        chunks = split_documents(raw)
+        print(f"Loaded {len(raw)} documents → {len(chunks)} chunks")
+        print()
 
-    ingest(reset=not args.no_reset)
+        ingest(reset=not args.no_reset)
+    except ValueError as exc:
+        print(f"Configuration error:\n{exc}", file=sys.stderr)
+        sys.exit(1)
+
     print(f"✓ Ingested {len(chunks)} chunks into '{CHROMA_COLLECTION_NAME}'")
 
 
