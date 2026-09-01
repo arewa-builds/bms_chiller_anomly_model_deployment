@@ -98,7 +98,42 @@ Then open **http://localhost:8001/docs** in your browser to explore the REST API
 > **Note:** Use embedded mode (`CHROMA_MODE=embedded`, the default) for ingest and inspect.
 > Server mode is for exploring the REST API; re-ingest after starting the server if the collection is empty.
 
-## ChromaDB settings
+## Chroma Cloud (your BMS database)
+
+Target: `https://www.trychroma.com/arewaiyi/aws-us-east-1/BMS/collections/chiller_troubleshooting`
+
+### 1. Get credentials from Chroma dashboard
+
+1. Open your **BMS** database in [Chroma Cloud](https://www.trychroma.com)
+2. Click **Connect**
+3. Copy:
+   - `CHROMA_API_KEY` (starts with `ck-`)
+   - `CHROMA_TENANT` (UUID — not the `arewaiyi` URL slug)
+   - `CHROMA_DATABASE` = `BMS`
+
+### 2. Configure locally
+
+```bash
+cp .env.copilot.example .env.copilot
+# Edit .env.copilot — paste your API key and tenant ID
+```
+
+### 3. Ingest into Chroma Cloud
+
+```bash
+export $(grep -v '^#' .env.copilot | xargs)
+python3 scripts/test_chroma_cloud.py      # verify connection
+python3 scripts/ingest_documents.py       # upload 13 chunks
+python3 scripts/test_chroma_cloud.py      # confirm count = 13
+```
+
+### 4. Verify in browser
+
+Refresh your collection page — you should see 13 documents/chunks.
+
+> **Note:** `ingest_documents.py` loads `.env.copilot` automatically if the file exists.
+
+---
 
 | Setting | Default | Description |
 |---------|---------|-------------|

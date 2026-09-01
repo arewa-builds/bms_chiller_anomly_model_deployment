@@ -90,7 +90,8 @@ def delete_collection_if_exists() -> None:
 def connection_info() -> str:
     """Human-readable connection string for logging."""
     if CHROMA_MODE == "cloud":
-        return f"cloud @ {CHROMA_DATABASE} (tenant={CHROMA_TENANT[:8]}...)"
+        tenant_label = CHROMA_TENANT[:12] + "..." if len(CHROMA_TENANT) > 12 else CHROMA_TENANT or "(not set)"
+        return f"cloud @ database={CHROMA_DATABASE}, tenant={tenant_label}"
     if CHROMA_MODE == "server":
         return f"server @ {CHROMA_HOST}:{CHROMA_PORT}"
     return f"embedded @ {CHROMA_PERSIST_DIR}"
