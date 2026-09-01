@@ -18,6 +18,71 @@ pip install -r requirements-copilot.txt
 
 ---
 
+## Testing CLI commands
+
+Run these in order to verify Step 1 end-to-end.
+
+### 1. Ingest documents (required first)
+
+```bash
+python3 scripts/ingest_documents.py
+```
+
+Re-ingest without wiping the collection:
+
+```bash
+python3 scripts/ingest_documents.py --no-reset
+```
+
+### 2. Inspect the database
+
+```bash
+python3 scripts/inspect_chroma_db.py
+python3 scripts/inspect_chroma_db.py --full    # full chunk text
+python3 scripts/inspect_chroma_db.py --json    # export as JSON
+python3 scripts/inspect_chroma_db.py --sqlite  # raw SQLite metadata
+```
+
+### 3. Test retrieval (no LLM, no API key)
+
+```bash
+python3 scripts/test_retrieval.py "elevated condenser water approach"
+python3 scripts/test_retrieval.py "tower tracking error FEEDBACK SIGNAL"
+python3 scripts/test_retrieval.py "chiller anomaly investigation" -k 6
+```
+
+### 4. Chroma Server mode (optional)
+
+```bash
+docker compose up chroma -d
+export CHROMA_MODE=server
+export CHROMA_HOST=localhost
+export CHROMA_PORT=8001
+python3 scripts/ingest_documents.py
+python3 scripts/inspect_chroma_db.py
+```
+
+### 5. Chroma Cloud mode (optional)
+
+```bash
+cp .env.copilot.example .env.copilot   # fill in CHROMA_API_KEY, CHROMA_TENANT, CHROMA_DATABASE
+export $(grep -v '^#' .env.copilot | xargs)
+python3 scripts/test_chroma_cloud.py      # verify connection
+python3 scripts/ingest_documents.py       # upload chunks
+python3 scripts/test_chroma_cloud.py      # confirm collection count
+```
+
+### Quick smoke test (embedded mode)
+
+```bash
+pip install -r requirements-copilot.txt
+python3 scripts/ingest_documents.py
+python3 scripts/inspect_chroma_db.py
+python3 scripts/test_retrieval.py "elevated condenser water approach"
+```
+
+---
+
 ## Option A — Embedded mode (simplest)
 
 Database stored as local files in `./chroma_db/`.

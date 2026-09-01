@@ -2,7 +2,11 @@
 
 Step 2 adds a **LangChain RAG chain** that retrieves engineering documentation from ChromaDB and produces a **structured troubleshooting diagnosis** using an OpenAI LLM.
 
+<<<<<<< HEAD
 No telemetry tool yet (Step 3). No LangGraph yet (Step 4).
+=======
+No LangGraph yet (Step 4). Telemetry is added in Step 3.
+>>>>>>> 941aa2022168cc3c2a441a79b0ba0770666b6fc7
 
 ## Architecture
 
@@ -36,6 +40,64 @@ cp .env.copilot.example .env.copilot
 # Fill in Chroma Cloud credentials AND OPENAI_API_KEY
 ```
 
+<<<<<<< HEAD
+=======
+Prerequisite: complete Step 1 ingestion first (`python3 scripts/ingest_documents.py`).
+
+---
+
+## Testing CLI commands
+
+### 1. Retrieval only (no OpenAI cost — validates Step 1 + retriever)
+
+```bash
+python3 scripts/ask_copilot.py --retrieve-only "elevated condenser water approach"
+python3 scripts/ask_copilot.py --retrieve-only "tower tracking error"
+python3 scripts/ask_copilot.py --retrieve-only "chiller anomaly investigation SOP"
+```
+
+Equivalent standalone retrieval test from Step 1:
+
+```bash
+python3 scripts/test_retrieval.py "elevated condenser water approach"
+```
+
+### 2. Full RAG diagnosis (requires `OPENAI_API_KEY`)
+
+```bash
+python3 scripts/ask_copilot.py \
+  --asset Chiller-03 \
+  "Chiller-03 has an elevated anomaly score. What should I investigate?"
+
+python3 scripts/ask_copilot.py \
+  --asset Chiller-03 \
+  "elevated CW approach to wet bulb temperature"
+```
+
+### 3. JSON output (machine-readable diagnosis)
+
+```bash
+python3 scripts/ask_copilot.py --json --asset Chiller-03 \
+  "elevated CW approach to wet bulb"
+
+python3 scripts/ask_copilot.py --json \
+  "What should I check when tower tracking error is high?"
+```
+
+### Quick smoke test
+
+```bash
+pip install -r requirements-copilot.txt
+cp .env.copilot.example .env.copilot   # add OPENAI_API_KEY + Chroma creds
+python3 scripts/ingest_documents.py
+python3 scripts/ask_copilot.py --retrieve-only "elevated condenser water approach"
+python3 scripts/ask_copilot.py --json --asset Chiller-03 \
+  "Chiller-03 has an elevated anomaly score. What should I investigate?"
+```
+
+---
+
+>>>>>>> 941aa2022168cc3c2a441a79b0ba0770666b6fc7
 ## Usage
 
 ### Retrieve only (no API cost — tests Step 1 + retrieval)
@@ -81,4 +143,8 @@ python3 scripts/ask_copilot.py --json --asset Chiller-03 \
 
 ## Next step (not implemented yet)
 
+<<<<<<< HEAD
 Step 3: Telemetry tool — bring live chiller sensor readings and anomaly scores into the prompt.
+=======
+Step 3: Telemetry tool — bring chiller sensor readings and anomaly scores into the prompt.
+>>>>>>> 941aa2022168cc3c2a441a79b0ba0770666b6fc7
