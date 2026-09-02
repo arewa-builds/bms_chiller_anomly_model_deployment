@@ -303,3 +303,4 @@ The copilot returns a `TroubleshootingDiagnosis` JSON object:
 | 3 | Done | Telemetry tool with derived flags |
 | 4 | Done | LangGraph workflow with conditional routing and escalation |
 | 5 | Planned | FastAPI copilot service + docker-compose integration |
+| 6–9 | Planned | See [`copilot/ROADMAP.md`](copilot/ROADMAP.md) for live telemetry, alerting, web UI, and production polish |
