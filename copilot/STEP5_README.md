@@ -57,7 +57,7 @@ Run these in order to verify Step 5 end-to-end.
 ### 1. Start the API locally
 
 ```bash
-uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002 --reload
+python3 -m python3 -m uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002 --reload
 ```
 
 **Expected:** Server starts on port 8002. Open http://localhost:8002/docs
@@ -154,7 +154,7 @@ cp .env.copilot.example .env.copilot
 python3 scripts/ingest_documents.py
 
 # Terminal 1
-uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
+python3 -m uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
 
 # Terminal 2
 curl http://localhost:8002/health
@@ -169,7 +169,8 @@ curl -s -X POST http://localhost:8002/diagnose \
 
 | Symptom | Fix |
 |---------|-----|
-| `Connection refused` on 8002 | Start uvicorn or `docker compose up copilot-api` |
+| `uvicorn: command not found` | Use `python3 -m uvicorn ...` (pip installs the module but may not add `~/.local/bin` to PATH) |
+| `Connection refused` on 8002 | Start the API with `python3 -m uvicorn ...` or `docker compose up copilot-api` |
 | `openai_configured: false` | Add `OPENAI_API_KEY` to `.env.copilot` |
 | Diagnose returns 500 on anomaly | Check API key; run `ingest_documents.py` |
 | Empty retrieval / escalate | Re-ingest docs: `python3 scripts/ingest_documents.py` |

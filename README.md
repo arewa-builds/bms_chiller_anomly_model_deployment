@@ -198,7 +198,7 @@ See [`copilot/STEP4_README.md`](copilot/STEP4_README.md).
 ### Step 5 — FastAPI copilot service
 
 ```bash
-uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
+python3 -m uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
 curl http://localhost:8002/health
 curl -s -X POST http://localhost:8002/diagnose \
   -H "Content-Type: application/json" \
