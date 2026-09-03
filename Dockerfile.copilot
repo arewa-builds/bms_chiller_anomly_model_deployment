@@ -1,0 +1,25 @@
+# Copilot FastAPI service — Docker image (Step 5)
+# Build:  docker build -f Dockerfile.copilot -t copilot-api:1.0 .
+# Run:    docker run -p 8002:8002 --env-file .env.copilot copilot-api:1.0
+
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && adduser --disabled-password --gecos "" appuser
+
+WORKDIR /app
+
+COPY requirements-copilot.txt .
+RUN pip install --no-cache-dir -r requirements-copilot.txt
+
+COPY copilot/ ./copilot/
+COPY data/documents/ ./data/documents/
+COPY scripts/ingest_documents.py ./scripts/
+
+RUN chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8002
+
+CMD ["uvicorn", "copilot.api.main:app", "--host", "0.0.0.0", "--port", "8002"]

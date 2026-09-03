@@ -121,6 +121,6 @@ python3 scripts/ask_copilot.py --json --scenario cw_degradation \
 - "Triage uses telemetry (LOF score + derived flags), not just the user question."
 - "Escalation is a separate graph node triggered by low confidence or missing retrieval — not just a prompt instruction."
 
-## Next step (not implemented yet)
+## Next step
 
-Step 5: FastAPI copilot service + docker-compose integration.
+Step 6: Live telemetry bridge — see [`ROADMAP.md`](ROADMAP.md).

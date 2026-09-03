@@ -56,6 +56,34 @@ services:
       - ANONYMIZED_TELEMETRY=FALSE
     restart: unless-stopped
 
+  # ── Copilot API (Step 5) ───────────────────────────────────────────────────
+  # Docs:   http://localhost:8002/docs
+  # Health: curl http://localhost:8002/health
+  copilot-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.copilot
+    image: copilot-api:1.0
+    container_name: copilot-api
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env.copilot
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./data/documents:/app/data/documents:ro
+    environment:
+      - CHROMA_MODE=embedded
+      - CHROMA_PERSIST_DIR=/app/chroma_db
+    depends_on:
+      - chroma
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 networks:
   bms-net:
     driver: bridge
