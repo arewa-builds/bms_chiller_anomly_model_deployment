@@ -66,3 +66,6 @@ python3 scripts/...
 - Include a **Quick smoke test** block that runs the step end-to-end.
 - Include **Prerequisites** (prior steps, env vars, ingestion).
 - Add a **Troubleshooting** table for common errors when the step has external dependencies.
+- Document **`EMBEDDING_BACKEND`** when the step uses retrieval (must match Step 1 ingest).
+- Use `python3 -m uvicorn` or `scripts/run_copilot_api.py` for the Step 5 API (uvicorn may not be on PATH).
+- Reference the correct requirements file: `requirements-copilot.txt` (full dev), `-api` (Docker), `-ingest` (local embeddings).

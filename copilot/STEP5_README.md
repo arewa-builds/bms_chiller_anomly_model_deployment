@@ -193,10 +193,10 @@ docker compose --profile ingest run --rm copilot-ingest
 ```bash
 pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot
-python3 scripts/ingest_documents.py
+EMBEDDING_BACKEND=openai python3 scripts/ingest_documents.py
 
 # Terminal 1
-python3 -m uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
+python3 scripts/run_copilot_api.py
 
 # Terminal 2
 curl http://localhost:8002/health
