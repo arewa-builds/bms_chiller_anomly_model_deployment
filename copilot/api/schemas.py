@@ -31,6 +31,7 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     chroma_mode: str
+    embedding_backend: str
     openai_configured: bool
 
 

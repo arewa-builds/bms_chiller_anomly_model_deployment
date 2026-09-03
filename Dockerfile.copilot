@@ -1,6 +1,10 @@
-# Copilot FastAPI service — Docker image (Step 5)
+# Copilot FastAPI service — slim runtime image (Step 5)
+# No sentence-transformers / torch — uses OpenAI embeddings at query time.
+#
 # Build:  docker build -f Dockerfile.copilot -t copilot-api:1.0 .
-# Run:    docker run -p 8002:8002 --env-file .env.copilot copilot-api:1.0
+# Run:    docker run -p 8002:8002 --env-file .env.copilot -e EMBEDDING_BACKEND=openai copilot-api:1.0
+#
+# Prerequisite: ingest with matching embeddings (see Dockerfile.copilot-ingest)
 
 FROM python:3.11-slim
 
@@ -10,15 +14,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 WORKDIR /app
 
-COPY requirements-copilot.txt .
-RUN pip install --no-cache-dir -r requirements-copilot.txt
+COPY requirements-copilot-api.txt .
+RUN pip install --no-cache-dir -r requirements-copilot-api.txt
 
 COPY copilot/ ./copilot/
-COPY data/documents/ ./data/documents/
 COPY scripts/ingest_documents.py ./scripts/
+COPY data/documents/ ./data/documents/
 
 RUN chown -R appuser:appuser /app
 USER appuser
+
+ENV EMBEDDING_BACKEND=openai
 
 EXPOSE 8002
 

@@ -12,7 +12,6 @@ from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from copilot.config import (
@@ -20,9 +19,9 @@ from copilot.config import (
     CHUNK_OVERLAP,
     CHUNK_SIZE,
     DOCUMENTS_DIR,
-    EMBEDDING_MODEL,
 )
 from copilot.rag.chroma_client import delete_collection_if_exists, get_chroma_client
+from copilot.rag.embeddings import get_embeddings
 
 
 def _parse_frontmatter_metadata(text: str) -> dict:
@@ -67,11 +66,6 @@ def split_documents(documents: list) -> list:
         separators=["\n## ", "\n### ", "\n\n", "\n", " "],
     )
     return splitter.split_documents(documents)
-
-
-def get_embeddings() -> HuggingFaceEmbeddings:
-    """Return the local embedding model (no API key required)."""
-    return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 
 
 def ingest(

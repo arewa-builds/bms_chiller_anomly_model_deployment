@@ -16,6 +16,10 @@ This is **Step 1** of the Manufacturing AI Troubleshooting Copilot. No LLM is us
 pip install -r requirements-copilot.txt
 ```
 
+For **Docker API only** (slim): `pip install -r requirements-copilot-api.txt`
+
+Default embedding backend is `local` (sentence-transformers). Set `EMBEDDING_BACKEND=openai` when using the Docker API image.
+
 ---
 
 ## Testing CLI commands

@@ -1,0 +1,23 @@
+# Copilot document ingest — fat image (sentence-transformers + torch)
+# Run once to populate chroma_db or Chroma Cloud.
+#
+# Build:  docker build -f Dockerfile.copilot-ingest -t copilot-ingest:1.0 .
+# Run:    docker compose --profile ingest run --rm copilot-ingest
+
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-copilot-ingest.txt .
+# CPU-only torch keeps image smaller than default CUDA wheels
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements-copilot-ingest.txt
+
+COPY copilot/ ./copilot/
+COPY data/documents/ ./data/documents/
+COPY scripts/ingest_documents.py ./scripts/
+
+CMD ["python3", "scripts/ingest_documents.py"]

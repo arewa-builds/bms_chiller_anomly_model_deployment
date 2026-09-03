@@ -205,7 +205,14 @@ curl -s -X POST http://localhost:8002/diagnose \
   -d '{"question":"health check","asset_id":"Chiller-03","scenario":"normal"}'
 ```
 
-Or via Docker: `docker compose up copilot-api --build -d`
+Or via Docker (slim image, OpenAI embeddings):
+
+```bash
+EMBEDDING_BACKEND=openai python3 scripts/ingest_documents.py
+docker compose up copilot-api --build -d
+```
+
+See [`copilot/STEP5_README.md`](copilot/STEP5_README.md) for ingest options and image sizes.
 
 API docs: http://localhost:8002/docs
 
