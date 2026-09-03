@@ -254,6 +254,15 @@ In **server mode**, Chroma reads/writes this folder inside the Docker container 
 | `cooling_tower_troubleshooting.md` | Troubleshooting guide |
 | `chiller_anomaly_investigation_sop.md` | Investigation SOP |
 
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `copilot/rag/ingest.py` | Load, chunk, ingest, retrieve |
+| `copilot/rag/embeddings.py` | `local` / `openai` embedding factory |
+| `requirements-copilot-ingest.txt` | Ingest dependencies (sentence-transformers) |
+| `requirements-copilot-api.txt` | Slim runtime (no torch) |
+
 ## Interview talking points (Step 1)
 
 - "I started with the knowledge base because RAG quality depends on source documents and chunking."
