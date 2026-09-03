@@ -195,6 +195,22 @@ python3 scripts/ask_copilot.py --json --scenario cw_degradation \
 
 See [`copilot/STEP4_README.md`](copilot/STEP4_README.md).
 
+### Step 5 — FastAPI copilot service
+
+```bash
+uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
+curl http://localhost:8002/health
+curl -s -X POST http://localhost:8002/diagnose \
+  -H "Content-Type: application/json" \
+  -d '{"question":"health check","asset_id":"Chiller-03","scenario":"normal"}'
+```
+
+Or via Docker: `docker compose up copilot-api --build -d`
+
+API docs: http://localhost:8002/docs
+
+See [`copilot/STEP5_README.md`](copilot/STEP5_README.md).
+
 ### Copilot smoke test (all steps)
 
 ```bash
@@ -302,5 +318,5 @@ The copilot returns a `TroubleshootingDiagnosis` JSON object:
 | 2 | Done | RAG chain with structured LLM output |
 | 3 | Done | Telemetry tool with derived flags |
 | 4 | Done | LangGraph workflow with conditional routing and escalation |
-| 5 | Planned | FastAPI copilot service + docker-compose integration |
+| 5 | Done | FastAPI copilot service + docker-compose integration |
 | 6–9 | Planned | See [`copilot/ROADMAP.md`](copilot/ROADMAP.md) for live telemetry, alerting, web UI, and production polish |

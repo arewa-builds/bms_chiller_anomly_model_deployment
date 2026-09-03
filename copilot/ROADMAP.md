@@ -1,11 +1,11 @@
 # Copilot Roadmap — Steps 5–9 & Web UI Plan
 
-> **Saved for future context.** Steps 6–9 are **proposed** extensions — not yet implemented.
-> Documented copilot steps 1–4 are complete. Step 5 is the next planned implementation step.
+> **Saved for future context.** Steps 6–9 are **proposed** extensions.
+> Steps 1–5 are complete. Step 5 is the FastAPI copilot service.
 
 ---
 
-## Current status (Steps 1–4)
+## Current status (Steps 1–5)
 
 | Step | Status | Description |
 |------|--------|-------------|
@@ -13,10 +13,11 @@
 | 2 | Done | RAG chain with structured LLM output |
 | 3 | Done | Telemetry tool with derived flags |
 | 4 | Done | LangGraph workflow with conditional routing and escalation |
+| 5 | Done | FastAPI copilot service + docker-compose integration |
 
 ---
 
-## Proposed Steps 5–9
+## Proposed Steps 6–9
 
 | Step | Name | What it adds |
 |------|------|--------------|
