@@ -92,6 +92,8 @@ python3 scripts/run_copilot_api.py --reload   # auto-reload on code changes
 
 ```bash
 curl http://localhost:8002/health
+# or:
+python3 scripts/test_copilot_api.py
 ```
 
 **Expected output:**
@@ -163,7 +165,14 @@ curl -s -X POST http://localhost:8002/diagnose \
 - `triage_reason` mentions LOF anomaly and/or elevated flags
 - `diagnosis.potential_causes` and `recommended_investigation` populated
 
-### 7. Docker Compose (slim API image)
+### 7. API smoke test script
+
+```bash
+python3 scripts/test_copilot_api.py
+python3 scripts/test_copilot_api.py --diagnose   # includes POST /diagnose (normal route)
+```
+
+### 8. Docker Compose (slim API image)
 
 ```bash
 cp .env.copilot.example .env.copilot
@@ -230,6 +239,7 @@ curl -s -X POST http://localhost:8002/diagnose \
 | `copilot/api/main.py` | FastAPI app and route handlers |
 | `copilot/api/schemas.py` | Request models (`DiagnoseRequest`) |
 | `scripts/run_copilot_api.py` | Start API without `uvicorn` on PATH |
+| `scripts/test_copilot_api.py` | HTTP smoke test for Step 5 endpoints |
 | `copilot/rag/embeddings.py` | `local` vs `openai` embedding factory |
 | `requirements-copilot-api.txt` | Slim API dependencies (Docker) |
 | `requirements-copilot-ingest.txt` | Fat ingest dependencies (sentence-transformers) |

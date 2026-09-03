@@ -63,7 +63,8 @@ The system has two integrated layers:
 │   ├── test_retrieval.py         # Retrieval smoke test (no LLM)
 │   ├── test_chroma_cloud.py      # Verify Chroma Cloud connection
 │   ├── ask_copilot.py            # CLI — retrieval, telemetry, full diagnosis
-│   └── run_copilot_api.py        # Start Step 5 API (no uvicorn on PATH)
+│   ├── run_copilot_api.py        # Start Step 5 API (no uvicorn on PATH)
+│   └── test_copilot_api.py         # HTTP smoke test for Step 5 API
 ├── synthetic_chiller_data.csv    # 1000-row synthetic sensor dataset
 ├── synthetic_chiller_data_scored.csv
 ├── Dockerfile                    # LOF inference API container

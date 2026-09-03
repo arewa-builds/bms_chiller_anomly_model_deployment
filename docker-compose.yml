@@ -58,8 +58,10 @@ services:
 
   # ── Copilot API (Step 5) — slim runtime, OpenAI embeddings ────────────────
   # Docs:   http://localhost:8002/docs
-  # Health: curl http://localhost:8002/health
-  # Ingest: docker compose --profile ingest run --rm copilot-ingest
+  # Test:   python3 scripts/test_copilot_api.py --diagnose
+  # Ingest: docker compose run --rm copilot-api python3 scripts/ingest_documents.py
+  #         docker compose --profile ingest run --rm copilot-ingest  (local embeddings)
+  # Set CHROMA_MODE, EMBEDDING_BACKEND, OPENAI_API_KEY in .env.copilot (not overridden below).
   copilot-api:
     build:
       context: .
@@ -73,11 +75,7 @@ services:
     volumes:
       - ./chroma_db:/app/chroma_db
     environment:
-      - CHROMA_MODE=embedded
       - CHROMA_PERSIST_DIR=/app/chroma_db
-      - EMBEDDING_BACKEND=openai
-    depends_on:
-      - chroma
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]

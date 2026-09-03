@@ -22,7 +22,7 @@ from copilot.env_utils import load_env_copilot
 
 load_env_copilot()
 
-from copilot.config import CHROMA_COLLECTION_NAME, CHROMA_MODE, DOCUMENTS_DIR
+from copilot.config import CHROMA_COLLECTION_NAME, CHROMA_MODE, DOCUMENTS_DIR, EMBEDDING_BACKEND
 from copilot.rag.chroma_client import connection_info
 from copilot.rag.ingest import ingest, load_documents, split_documents
 
@@ -39,6 +39,7 @@ def main() -> None:
     print(f"Documents dir : {DOCUMENTS_DIR}")
     print(f"Chroma        : {connection_info()}")
     print(f"Collection    : {CHROMA_COLLECTION_NAME}")
+    print(f"Embeddings    : {EMBEDDING_BACKEND}")
     if CHROMA_MODE == "cloud":
         print("Target        : Chroma Cloud (BMS database)")
     print()

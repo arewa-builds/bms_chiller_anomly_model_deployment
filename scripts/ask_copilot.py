@@ -84,7 +84,7 @@ def _print_workflow(result) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Manufacturing AI Troubleshooting Copilot (Step 4: LangGraph workflow)"
+        description="Manufacturing AI Troubleshooting Copilot (Steps 4–5: LangGraph + HTTP API)"
     )
     parser.add_argument("question", nargs="?", help="Engineer troubleshooting question")
     parser.add_argument("--asset", default=None, help="Asset ID, e.g. Chiller-03")

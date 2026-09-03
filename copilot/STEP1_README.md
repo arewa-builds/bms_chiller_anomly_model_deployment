@@ -268,7 +268,6 @@ In **server mode**, Chroma reads/writes this folder inside the Docker container 
 - "I started with the knowledge base because RAG quality depends on source documents and chunking."
 - "Chroma runs embedded for local dev or as a server for production-like access."
 - "I validated retrieval and inspected stored chunks before adding an LLM."
-
 - "I split ingest and API dependencies — local sentence-transformers for dev, OpenAI embeddings for the slim Docker runtime."
 
 ## Next step
