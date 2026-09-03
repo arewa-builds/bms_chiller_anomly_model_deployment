@@ -2,7 +2,26 @@
 
 Step 2 adds a **LangChain RAG chain** that retrieves engineering documentation from ChromaDB and produces a **structured troubleshooting diagnosis** using an OpenAI LLM.
 
-Telemetry is added in Step 3. LangGraph routing is added in Step 4.
+Telemetry is added in Step 3. LangGraph routing is added in Step 4. Step 5 exposes the workflow as an HTTP API.
+
+## Dependencies
+
+```bash
+pip install -r requirements-copilot.txt
+cp .env.copilot.example .env.copilot
+```
+
+Retrieval uses the same `EMBEDDING_BACKEND` as Step 1 ingest (`local` or `openai`). See [`STEP1_README.md`](STEP1_README.md).
+
+## Setup
+
+```bash
+pip install -r requirements-copilot.txt
+cp .env.copilot.example .env.copilot
+# Fill in Chroma Cloud credentials AND OPENAI_API_KEY
+```
+
+Prerequisite: complete Step 1 ingestion first (`python3 scripts/ingest_documents.py`).
 
 ## Architecture
 
@@ -27,16 +46,6 @@ TroubleshootingDiagnosis JSON
 | Chat model | `copilot/rag/chain.py` | `ChatOpenAI` |
 | Structured output | `copilot/schemas.py` | `TroubleshootingDiagnosis` Pydantic model |
 | LCEL chain | `copilot/rag/chain.py` | `prompt \| structured_llm` |
-
-## Setup
-
-```bash
-pip install -r requirements-copilot.txt
-cp .env.copilot.example .env.copilot
-# Fill in Chroma Cloud credentials AND OPENAI_API_KEY
-```
-
-Prerequisite: complete Step 1 ingestion first (`python3 scripts/ingest_documents.py`).
 
 ---
 
@@ -85,11 +94,18 @@ python3 scripts/ask_copilot.py --linear --json \
 ```bash
 pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot   # add OPENAI_API_KEY + Chroma creds
-python3 scripts/ingest_documents.py
+EMBEDDING_BACKEND=local python3 scripts/ingest_documents.py
 python3 scripts/ask_copilot.py --retrieve-only "elevated condenser water approach"
 python3 scripts/ask_copilot.py --linear --json --asset Chiller-03 \
   "Chiller-03 has an elevated anomaly score. What should I investigate?"
 ```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Empty retrieval results | Re-ingest; confirm `EMBEDDING_BACKEND` matches ingest |
+| `EMBEDDING_BACKEND=openai requires OPENAI_API_KEY` | Add key to `.env.copilot` |
 
 ---
 

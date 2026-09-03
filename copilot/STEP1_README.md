@@ -6,15 +6,31 @@ This is **Step 1** of the Manufacturing AI Troubleshooting Copilot. No LLM is us
 
 1. Loads 3 engineering documents from `data/documents/`
 2. Splits them into chunks (~1000 chars, 150 overlap)
-3. Embeds with `sentence-transformers/all-MiniLM-L6-v2` (local, no API key)
+3. Embeds chunks via `copilot/rag/embeddings.py` (see embedding backends below)
 4. Stores in ChromaDB collection **`chiller_troubleshooting`**
 5. Lets you test retrieval and **inspect the database**
+
+## Embedding backends
+
+Configured with `EMBEDDING_BACKEND` in `.env.copilot` (must match at ingest **and** retrieval):
+
+| Backend | Model | Requires | Best for |
+|---------|-------|----------|----------|
+| `local` (default) | `sentence-transformers/all-MiniLM-L6-v2` | `requirements-copilot-ingest.txt` | Host dev, free ingest |
+| `openai` | `text-embedding-3-small` | `OPENAI_API_KEY` | Slim Docker API (Step 5) |
+
+Re-ingest when switching backends.
 
 ## Setup
 
 ```bash
+pip install -r requirements-copilot-ingest.txt   # ingest + retrieval with local embeddings
+# or full dev stack:
 pip install -r requirements-copilot.txt
+cp .env.copilot.example .env.copilot
 ```
+
+For **Docker API only** (no local embeddings on host): `pip install -r requirements-copilot-api.txt` and use `EMBEDDING_BACKEND=openai`.
 
 ---
 
@@ -25,7 +41,11 @@ Run these in order to verify Step 1 end-to-end.
 ### 1. Ingest documents (required first)
 
 ```bash
+# local embeddings (default)
 python3 scripts/ingest_documents.py
+
+# OpenAI embeddings (for slim Docker API)
+EMBEDDING_BACKEND=openai python3 scripts/ingest_documents.py
 ```
 
 Re-ingest without wiping the collection:
@@ -202,6 +222,9 @@ Refresh your collection page — you should see 13 documents/chunks.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `EMBEDDING_BACKEND` | `local` | `local` or `openai` — must match ingest and retrieval |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | HuggingFace model (`local` backend) |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI model (`openai` backend) |
 | `CHROMA_MODE` | `embedded` | `embedded`, `server`, or `cloud` |
 | `CHROMA_HOST` | `localhost` | Server hostname |
 | `CHROMA_PORT` | `8001` | Server port (8001 avoids conflict with chiller API on 8000) |
@@ -231,12 +254,22 @@ In **server mode**, Chroma reads/writes this folder inside the Docker container 
 | `cooling_tower_troubleshooting.md` | Troubleshooting guide |
 | `chiller_anomaly_investigation_sop.md` | Investigation SOP |
 
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `copilot/rag/ingest.py` | Load, chunk, ingest, retrieve |
+| `copilot/rag/embeddings.py` | `local` / `openai` embedding factory |
+| `requirements-copilot-ingest.txt` | Ingest dependencies (sentence-transformers) |
+| `requirements-copilot-api.txt` | Slim runtime (no torch) |
+
 ## Interview talking points (Step 1)
 
 - "I started with the knowledge base because RAG quality depends on source documents and chunking."
 - "Chroma runs embedded for local dev or as a server for production-like access."
 - "I validated retrieval and inspected stored chunks before adding an LLM."
+- "I split ingest and API dependencies — local sentence-transformers for dev, OpenAI embeddings for the slim Docker runtime."
 
-## Next step (not implemented yet)
+## Next step
 
-Step 2: Simple RAG chain — retrieve + LLM + structured output.
+Step 2: RAG chain — see [`STEP2_README.md`](STEP2_README.md).

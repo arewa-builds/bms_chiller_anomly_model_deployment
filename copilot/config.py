@@ -37,8 +37,11 @@ RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "4"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-# Local embedding model (no API key required for Step 1)
+# Embeddings — local (ingest) or openai (thin API runtime)
+# Use the same backend for ingest AND retrieval. Re-ingest when switching.
+EMBEDDING_BACKEND = os.getenv("EMBEDDING_BACKEND", "local")  # local | openai
 EMBEDDING_MODEL = os.getenv(
     "EMBEDDING_MODEL",
     "sentence-transformers/all-MiniLM-L6-v2",
 )
+OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")

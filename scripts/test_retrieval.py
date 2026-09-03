@@ -13,7 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from copilot.config import RETRIEVAL_TOP_K
+from copilot.env_utils import load_env_copilot
+
+load_env_copilot()
+
+from copilot.config import RETRIEVAL_TOP_K, EMBEDDING_BACKEND
 from copilot.rag.ingest import retrieve
 
 
@@ -26,6 +30,7 @@ def main() -> None:
     results = retrieve(args.query, top_k=args.k)
 
     print(f"Query: {args.query!r}")
+    print(f"Embedding backend: {EMBEDDING_BACKEND}")
     print(f"Results: {len(results)}\n")
 
     for i, doc in enumerate(results, 1):

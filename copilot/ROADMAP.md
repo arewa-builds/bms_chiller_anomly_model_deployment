@@ -27,11 +27,13 @@
 | **8** | Engineer web UI | Browser app for questions, telemetry view, and structured diagnosis |
 | **9** | History, auth & production polish | Session history, user auth, audit log, deployment hardening, optional dashboard trends |
 
-### Step 5 — FastAPI copilot service
+### Step 5 — FastAPI copilot service (complete)
 
-- Expose `run_workflow()` as HTTP endpoints
-- `GET /health`, `GET /telemetry/{asset_id}`, `POST /diagnose`, `GET /scenarios` (demo mode)
-- Add `copilot-api` service to `docker-compose.yml` (port 8002)
+- HTTP API wrapping `run_workflow()` — `GET /health`, `GET /telemetry/{asset_id}`, `POST /diagnose`, `GET /scenarios`
+- **Slim Docker image** (`Dockerfile.copilot`) — no torch / sentence-transformers; uses `EMBEDDING_BACKEND=openai`
+- **Fat ingest image** (`Dockerfile.copilot-ingest`, compose `--profile ingest`) — local sentence-transformers
+- Split requirements: `requirements-copilot-api.txt` (runtime) vs `requirements-copilot-ingest.txt` (ingest)
+- `copilot-api` service on port 8002 in `docker-compose.yml`
 - Prerequisite for Step 8 UI
 
 ### Step 6 — Live telemetry bridge

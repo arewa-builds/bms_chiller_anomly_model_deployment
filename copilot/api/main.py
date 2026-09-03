@@ -22,7 +22,7 @@ from copilot.api.schemas import (
     ScenariosResponse,
     WorkflowResult,
 )
-from copilot.config import CHROMA_MODE, OPENAI_API_KEY
+from copilot.config import CHROMA_MODE, EMBEDDING_BACKEND, OPENAI_API_KEY
 from copilot.env_utils import load_env_copilot
 from copilot.tools.telemetry import get_chiller_telemetry, list_scenarios
 from copilot.workflow.graph import run_workflow
@@ -62,6 +62,7 @@ def health() -> HealthResponse:
         service="chiller-troubleshooting-copilot",
         version="1.0.0",
         chroma_mode=CHROMA_MODE,
+        embedding_backend=EMBEDDING_BACKEND,
         openai_configured=_openai_configured(),
     )
 

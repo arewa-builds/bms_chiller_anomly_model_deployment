@@ -20,6 +20,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from copilot.env_utils import load_env_copilot
+
+load_env_copilot()
+
 from copilot.config import CHROMA_COLLECTION_NAME, CHROMA_MODE, CHROMA_PERSIST_DIR
 from copilot.rag.chroma_client import connection_info, get_chroma_client
 

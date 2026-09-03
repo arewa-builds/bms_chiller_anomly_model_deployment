@@ -1,0 +1,6 @@
+# Copilot ingest — full stack for document embedding (fat; not used in API image)
+-r requirements-copilot-api.txt
+langchain-community==0.4.2
+langchain-text-splitters==1.1.2
+langchain-huggingface==1.2.2
+sentence-transformers==3.3.1

@@ -2,6 +2,18 @@
 
 Adds a `get_chiller_telemetry` tool that returns demo sensor snapshots with **derived flags** before the RAG chain calls the LLM.
 
+Step 4 wraps this in LangGraph routing. Step 5 exposes diagnosis via HTTP API (`POST /diagnose`).
+
+## Setup
+
+```bash
+pip install -r requirements-copilot.txt
+cp .env.copilot.example .env.copilot
+EMBEDDING_BACKEND=local python3 scripts/ingest_documents.py   # Step 1 prerequisite
+```
+
+Same embedding backend rules as Step 1 — see [`STEP1_README.md`](STEP1_README.md).
+
 ## Derived flags format
 
 Each flag returns an elevation status plus the measured value:
@@ -78,12 +90,23 @@ python3 scripts/ask_copilot.py --linear --json --asset Chiller-03 --scenario cw_
 python3 scripts/ask_copilot.py --retrieve-only "tower tracking error"
 ```
 
+### 5. Via Step 5 HTTP API (alternative to CLI)
+
+```bash
+curl "http://localhost:8002/telemetry/Chiller-03?scenario=cw_degradation"
+curl -s -X POST http://localhost:8002/diagnose \
+  -H "Content-Type: application/json" \
+  -d '{"question":"what should I check?","asset_id":"Chiller-03","scenario":"cw_degradation"}'
+```
+
+See [`STEP5_README.md`](STEP5_README.md).
+
 ### Quick smoke test
 
 ```bash
 pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot   # add OPENAI_API_KEY + Chroma creds
-python3 scripts/ingest_documents.py
+EMBEDDING_BACKEND=local python3 scripts/ingest_documents.py
 python3 scripts/ask_copilot.py --telemetry-only --scenario cw_degradation
 python3 scripts/ask_copilot.py --linear --json --asset Chiller-03 --scenario cw_degradation \
   "Chiller-03 has elevated anomaly score. What should I investigate?"

@@ -47,27 +47,34 @@ The system has two integrated layers:
 ├── model/
 │   └── lof_chiller_model.onnx    # Trained LOF model
 ├── copilot/
-│   ├── rag/                      # Ingestion, ChromaDB client, RAG chain
+│   ├── api/                      # FastAPI service (Step 5)
+│   ├── workflow/                 # LangGraph routing (Step 4)
+│   ├── rag/                      # Ingestion, embeddings, ChromaDB, RAG chain
 │   ├── tools/telemetry.py        # get_chiller_telemetry() demo tool
 │   ├── data/demo_scenarios.py    # cw_degradation, flow_restriction, normal
 │   ├── schemas.py                # Pydantic models (telemetry + diagnosis)
 │   ├── prompts.py                # Grounding prompts
-│   ├── STEP1_README.md           # Knowledge base & ChromaDB
-│   ├── STEP2_README.md           # RAG chain + structured LLM output
-│   └── STEP3_README.md           # Telemetry tool + derived flags
+│   ├── ROADMAP.md                # Steps 6–9 and UI plan
+│   ├── STEP1_README.md … STEP5_README.md
 ├── data/documents/               # Engineering docs for RAG ingestion
 ├── scripts/
 │   ├── ingest_documents.py       # Chunk + embed + store in ChromaDB
 │   ├── inspect_chroma_db.py      # Browse stored chunks
 │   ├── test_retrieval.py         # Retrieval smoke test (no LLM)
 │   ├── test_chroma_cloud.py      # Verify Chroma Cloud connection
-│   └── ask_copilot.py            # CLI — retrieval, telemetry, full diagnosis
+│   ├── ask_copilot.py            # CLI — retrieval, telemetry, full diagnosis
+│   ├── run_copilot_api.py        # Start Step 5 API (no uvicorn on PATH)
+│   └── test_copilot_api.py         # HTTP smoke test for Step 5 API
 ├── synthetic_chiller_data.csv    # 1000-row synthetic sensor dataset
 ├── synthetic_chiller_data_scored.csv
-├── Dockerfile                    # Inference API container
-├── docker-compose.yml            # Inference + OPC-UA bridge + Chroma server
+├── Dockerfile                    # LOF inference API container
+├── Dockerfile.copilot            # Slim copilot API (no torch)
+├── Dockerfile.copilot-ingest     # Fat ingest image (sentence-transformers)
+├── docker-compose.yml            # Inference, bridge, Chroma, copilot-api
 ├── requirements.txt              # Inference / bridge dependencies
-└── requirements-copilot.txt      # Copilot (LangChain, Chroma, OpenAI)
+├── requirements-copilot.txt      # Full local dev (ingest + API + CLI)
+├── requirements-copilot-api.txt  # Slim API / Docker runtime only
+└── requirements-copilot-ingest.txt  # Ingest with local embeddings
 ```
 
 ---
@@ -136,15 +143,28 @@ Before connecting to a live BMS server, configure `app/opcua_bridge.py`:
 ### Setup
 
 ```bash
-pip install -r requirements-copilot.txt
+pip install -r requirements-copilot.txt   # full local dev
 cp .env.copilot.example .env.copilot
 # Fill in CHROMA credentials and OPENAI_API_KEY
 ```
 
+| Install target | Command | When to use |
+|----------------|---------|-------------|
+| Full local dev | `pip install -r requirements-copilot.txt` | CLI, ingest, API on host |
+| API / Docker only | `pip install -r requirements-copilot-api.txt` | Slim runtime, no torch |
+| Ingest (local embeddings) | `pip install -r requirements-copilot-ingest.txt` | sentence-transformers ingest |
+
+**Embeddings:** Set `EMBEDDING_BACKEND` in `.env.copilot`. Use `local` (default) on the host with sentence-transformers, or `openai` for the slim Docker API. **Ingest and retrieval must use the same backend** — re-ingest when switching.
+
 ### Step 1 — Ingest engineering docs into ChromaDB
 
 ```bash
+# local embeddings (default)
 python3 scripts/ingest_documents.py
+
+# or OpenAI embeddings (matches Docker API)
+EMBEDDING_BACKEND=openai python3 scripts/ingest_documents.py
+
 python3 scripts/test_retrieval.py "elevated condenser water approach"
 ```
 
@@ -198,25 +218,32 @@ See [`copilot/STEP4_README.md`](copilot/STEP4_README.md).
 ### Step 5 — FastAPI copilot service
 
 ```bash
-uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
+python3 scripts/run_copilot_api.py
+# or: python3 -m uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
+
 curl http://localhost:8002/health
 curl -s -X POST http://localhost:8002/diagnose \
   -H "Content-Type: application/json" \
   -d '{"question":"health check","asset_id":"Chiller-03","scenario":"normal"}'
 ```
 
-Or via Docker: `docker compose up copilot-api --build -d`
+**Docker (slim image — no torch / sentence-transformers):**
+
+```bash
+EMBEDDING_BACKEND=openai python3 scripts/ingest_documents.py   # re-ingest once
+docker compose up copilot-api --build -d
+```
 
 API docs: http://localhost:8002/docs
 
-See [`copilot/STEP5_README.md`](copilot/STEP5_README.md).
+See [`copilot/STEP5_README.md`](copilot/STEP5_README.md) for ingest options, image sizes, and troubleshooting.
 
 ### Copilot smoke test (all steps)
 
 ```bash
 pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot
-python3 scripts/ingest_documents.py
+EMBEDDING_BACKEND=local python3 scripts/ingest_documents.py
 python3 scripts/ask_copilot.py --telemetry-only --scenario cw_degradation
 python3 scripts/ask_copilot.py --json --asset Chiller-03 --scenario cw_degradation \
   "Chiller-03 has elevated anomaly score. What should I investigate?"
@@ -261,10 +288,14 @@ Ingested into ChromaDB collection **`chiller_troubleshooting`** (~13 chunks).
 | `lof-chiller` | 8000 | ONNX inference API |
 | `opcua-bridge` | — | Polls OPC UA, posts to `/predict` |
 | `chroma` | 8001 | ChromaDB server for copilot RAG (optional) |
+| `copilot-api` | 8002 | Slim copilot FastAPI (`EMBEDDING_BACKEND=openai`) |
+| `copilot-ingest` | — | One-shot fat ingest (`--profile ingest`, local embeddings) |
 
 ```bash
-docker compose up --build          # inference + bridge
-docker compose up chroma -d        # Chroma server only
+docker compose up --build              # inference + bridge
+docker compose up chroma -d            # Chroma server only
+docker compose up copilot-api --build  # slim copilot API
+docker compose --profile ingest run --rm copilot-ingest   # local-embedding ingest
 ```
 
 ---
@@ -275,7 +306,10 @@ docker compose up chroma -d        # Chroma server only
 |----------|---------|-------------|
 | `CHROMA_MODE` | `embedded` | `embedded`, `server`, or `cloud` |
 | `CHROMA_COLLECTION_NAME` | `chiller_troubleshooting` | Vector collection name |
-| `OPENAI_API_KEY` | — | Required for full copilot diagnosis |
+| `EMBEDDING_BACKEND` | `local` | `local` (sentence-transformers) or `openai` (Docker API) |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | HuggingFace model when `EMBEDDING_BACKEND=local` |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI model when `EMBEDDING_BACKEND=openai` |
+| `OPENAI_API_KEY` | — | Required for LLM diagnosis and OpenAI embeddings |
 | `OPENAI_MODEL` | `gpt-4o-mini` | LLM for structured output |
 | `OPC_SERVER_URL` | `opc.tcp://127.0.0.1:4840` | BMS OPC UA endpoint |
 | `POLL_INTERVAL_S` | `1800` | Bridge poll interval (seconds) |

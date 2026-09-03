@@ -42,8 +42,12 @@ The escalate node prepends SOP-aligned escalation steps and sets `escalation_req
 pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot
 # OPENAI_API_KEY required for diagnose route only
-python3 scripts/ingest_documents.py
+EMBEDDING_BACKEND=local python3 scripts/ingest_documents.py
 ```
+
+LangGraph is the **default** path in `ask_copilot.py`. Use `--linear` for the Step 3 chain. The same workflow is available via `POST /diagnose` on the Step 5 API — see [`STEP5_README.md`](STEP5_README.md).
+
+Embedding backend must match Step 1 ingest (`local` or `openai`). See [`STEP1_README.md`](STEP1_README.md).
 
 ---
 
@@ -95,7 +99,7 @@ The `--linear` flag bypasses LangGraph and uses the Step 3 `troubleshoot()` chai
 ```bash
 pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot
-python3 scripts/ingest_documents.py
+EMBEDDING_BACKEND=local python3 scripts/ingest_documents.py
 
 # Normal path — no API key needed
 python3 scripts/ask_copilot.py --scenario normal "health check"
@@ -104,6 +108,16 @@ python3 scripts/ask_copilot.py --scenario normal "health check"
 python3 scripts/ask_copilot.py --json --scenario cw_degradation \
   "what should I investigate?"
 ```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `Configuration error: OPENAI_API_KEY` | Add key to `.env.copilot` (only needed for diagnose route) |
+| `No relevant documentation retrieved` | Re-ingest; check `EMBEDDING_BACKEND` matches ingest |
+| `EMBEDDING_BACKEND=openai requires OPENAI_API_KEY` | Add key when using OpenAI embeddings |
+| Always routes to `diagnose` on normal | Pass `--scenario normal` explicitly |
+| Want Step 3 behavior | Add `--linear` flag |
 
 ---
 
@@ -123,4 +137,4 @@ python3 scripts/ask_copilot.py --json --scenario cw_degradation \
 
 ## Next step
 
-Step 6: Live telemetry bridge — see [`ROADMAP.md`](ROADMAP.md).
+Step 5: FastAPI copilot service — see [`STEP5_README.md`](STEP5_README.md).

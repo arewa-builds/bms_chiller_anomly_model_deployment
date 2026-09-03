@@ -56,9 +56,12 @@ services:
       - ANONYMIZED_TELEMETRY=FALSE
     restart: unless-stopped
 
-  # ── Copilot API (Step 5) ───────────────────────────────────────────────────
+  # ── Copilot API (Step 5) — slim runtime, OpenAI embeddings ────────────────
   # Docs:   http://localhost:8002/docs
-  # Health: curl http://localhost:8002/health
+  # Test:   python3 scripts/test_copilot_api.py --diagnose
+  # Ingest: docker compose run --rm copilot-api python3 scripts/ingest_documents.py
+  #         docker compose --profile ingest run --rm copilot-ingest  (local embeddings)
+  # Set CHROMA_MODE, EMBEDDING_BACKEND, OPENAI_API_KEY in .env.copilot (not overridden below).
   copilot-api:
     build:
       context: .
@@ -71,18 +74,31 @@ services:
       - .env.copilot
     volumes:
       - ./chroma_db:/app/chroma_db
-      - ./data/documents:/app/data/documents:ro
     environment:
-      - CHROMA_MODE=embedded
       - CHROMA_PERSIST_DIR=/app/chroma_db
-    depends_on:
-      - chroma
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+  # ── Copilot ingest (one-shot) — fat image with sentence-transformers ───────
+  copilot-ingest:
+    profiles: ["ingest"]
+    build:
+      context: .
+      dockerfile: Dockerfile.copilot-ingest
+    image: copilot-ingest:1.0
+    env_file:
+      - .env.copilot
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./data/documents:/app/data/documents:ro
+    environment:
+      - CHROMA_MODE=embedded
+      - CHROMA_PERSIST_DIR=/app/chroma_db
+      - EMBEDDING_BACKEND=local
 
 networks:
   bms-net:

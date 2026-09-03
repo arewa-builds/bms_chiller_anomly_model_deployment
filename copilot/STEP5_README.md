@@ -27,12 +27,31 @@ Interactive docs: **http://localhost:8002/docs**
 
 ## Setup
 
+**Local development (full stack):**
+
 ```bash
 pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot
 # Fill in OPENAI_API_KEY and Chroma credentials
-python3 scripts/ingest_documents.py
+EMBEDDING_BACKEND=local python3 scripts/ingest_documents.py   # or openai (see below)
 ```
+
+**Docker API (slim image — no torch / sentence-transformers):**
+
+```bash
+cp .env.copilot.example .env.copilot
+# Set EMBEDDING_BACKEND=openai and OPENAI_API_KEY
+EMBEDDING_BACKEND=openai python3 scripts/ingest_documents.py   # re-ingest with OpenAI embeddings
+docker compose up copilot-api --build -d
+```
+
+Use the **same** `EMBEDDING_BACKEND` for ingest and retrieval. Re-ingest when switching backends.
+
+| File | Use |
+|------|-----|
+| `requirements-copilot-api.txt` | API / Docker runtime only (~300–600MB image) |
+| `requirements-copilot-ingest.txt` | Ingest with local sentence-transformers |
+| `requirements-copilot.txt` | Full local dev (ingest + API) |
 
 ---
 
@@ -57,7 +76,14 @@ Run these in order to verify Step 5 end-to-end.
 ### 1. Start the API locally
 
 ```bash
-uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002 --reload
+python3 -m uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002 --reload
+```
+
+Or use the helper script (also works when `uvicorn` is not on your PATH):
+
+```bash
+python3 scripts/run_copilot_api.py
+python3 scripts/run_copilot_api.py --reload   # auto-reload on code changes
 ```
 
 **Expected:** Server starts on port 8002. Open http://localhost:8002/docs
@@ -66,6 +92,8 @@ uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002 --reload
 
 ```bash
 curl http://localhost:8002/health
+# or:
+python3 scripts/test_copilot_api.py
 ```
 
 **Expected output:**
@@ -76,6 +104,7 @@ curl http://localhost:8002/health
   "service": "chiller-troubleshooting-copilot",
   "version": "1.0.0",
   "chroma_mode": "embedded",
+  "embedding_backend": "openai",
   "openai_configured": true
 }
 ```
@@ -136,25 +165,47 @@ curl -s -X POST http://localhost:8002/diagnose \
 - `triage_reason` mentions LOF anomaly and/or elevated flags
 - `diagnosis.potential_causes` and `recommended_investigation` populated
 
-### 7. Docker Compose
+### 7. API smoke test script
 
 ```bash
-python3 scripts/ingest_documents.py
+python3 scripts/test_copilot_api.py
+python3 scripts/test_copilot_api.py --diagnose   # includes POST /diagnose (normal route)
+```
+
+### 8. Docker Compose (slim API image)
+
+```bash
+cp .env.copilot.example .env.copilot
+# EMBEDDING_BACKEND=openai in .env.copilot
+EMBEDDING_BACKEND=openai python3 scripts/ingest_documents.py
+
 docker compose up copilot-api --build -d
 curl http://localhost:8002/health
 ```
 
-**Expected:** `copilot-api` container healthy on port 8002.
+**OpenAI ingest inside slim container** (no fat image):
+
+```bash
+docker compose run --rm copilot-api python3 scripts/ingest_documents.py
+```
+
+**Local embeddings ingest** (fat image, optional — no OpenAI embedding cost):
+
+```bash
+docker compose --profile ingest run --rm copilot-ingest
+```
+
+**Expected:** `copilot-api` container healthy on port 8002. Image should be ~300–600MB (not multi-GB).
 
 ### Quick smoke test
 
 ```bash
 pip install -r requirements-copilot.txt
 cp .env.copilot.example .env.copilot
-python3 scripts/ingest_documents.py
+EMBEDDING_BACKEND=openai python3 scripts/ingest_documents.py
 
 # Terminal 1
-uvicorn copilot.api.main:app --host 0.0.0.0 --port 8002
+python3 scripts/run_copilot_api.py
 
 # Terminal 2
 curl http://localhost:8002/health
@@ -169,11 +220,15 @@ curl -s -X POST http://localhost:8002/diagnose \
 
 | Symptom | Fix |
 |---------|-----|
-| `Connection refused` on 8002 | Start uvicorn or `docker compose up copilot-api` |
+| `uvicorn: command not found` | Use `python3 -m uvicorn ...` (pip installs the module but may not add `~/.local/bin` to PATH) |
+| `Connection refused` on 8002 | Start the API with `python3 -m uvicorn ...` or `docker compose up copilot-api` |
 | `openai_configured: false` | Add `OPENAI_API_KEY` to `.env.copilot` |
 | Diagnose returns 500 on anomaly | Check API key; run `ingest_documents.py` |
 | Empty retrieval / escalate | Re-ingest docs: `python3 scripts/ingest_documents.py` |
-| Docker: collection empty | Mount `./chroma_db` volume; ingest before building image |
+| Docker build huge / fails | API uses `requirements-copilot-api.txt` only — no sentence-transformers |
+| Retrieval returns wrong/empty after Docker | Re-ingest with `EMBEDDING_BACKEND=openai` to match API container |
+| `EMBEDDING_BACKEND=openai requires OPENAI_API_KEY` | Add key to `.env.copilot` |
+| Want free local embeddings | `EMBEDDING_BACKEND=local` + `pip install -r requirements-copilot-ingest.txt` |
 
 ---
 
@@ -183,14 +238,20 @@ curl -s -X POST http://localhost:8002/diagnose \
 |------|---------|
 | `copilot/api/main.py` | FastAPI app and route handlers |
 | `copilot/api/schemas.py` | Request models (`DiagnoseRequest`) |
-| `Dockerfile.copilot` | Copilot API container image |
-| `docker-compose.yml` | `copilot-api` service on port 8002 |
+| `scripts/run_copilot_api.py` | Start API without `uvicorn` on PATH |
+| `scripts/test_copilot_api.py` | HTTP smoke test for Step 5 endpoints |
+| `copilot/rag/embeddings.py` | `local` vs `openai` embedding factory |
+| `requirements-copilot-api.txt` | Slim API dependencies (Docker) |
+| `requirements-copilot-ingest.txt` | Fat ingest dependencies (sentence-transformers) |
+| `Dockerfile.copilot` | Slim copilot API image |
+| `Dockerfile.copilot-ingest` | Fat one-shot ingest image (local embeddings) |
+| `docker-compose.yml` | `copilot-api` + optional `copilot-ingest` profile |
 
 ## Interview talking points (Step 5)
 
 - "I separated the copilot into an API layer so the UI and integrations don't depend on CLI scripts."
 - "The API is a thin wrapper over `run_workflow()` — same LangGraph logic, new transport."
-- "CORS is enabled for the Step 8 web UI. Health endpoint exposes whether OpenAI is configured."
+- "The Docker API image is slim — no torch or sentence-transformers. Query embeddings use OpenAI; ingest runs on the host or in a separate fat container."
 
 ## Next step
 
