@@ -42,7 +42,7 @@ The system has two integrated layers:
 │   ├── main.py                   # FastAPI inference server (ONNX Runtime)
 │   ├── preprocessor.py         # ChillerPreprocessor — 16 sensors → 197 features
 │   ├── opcua_bridge.py           # asyncua client, 30-min poll → /predict
-│   ├── mock_data_generator.py    # Synthetic chiller data for dev/test
+│   ├── mock_data_generator.py    # Training-calibrated synthetic chiller data (uses production feature code)
 │   └── score_synthetic_data.py     # Batch-score synthetic CSV with ONNX model
 ├── model/
 │   └── lof_chiller_model.onnx    # Trained LOF model
@@ -251,6 +251,24 @@ python3 scripts/ask_copilot.py --json --asset Chiller-03 --scenario cw_degradati
 
 ---
 
+## Synthetic data and calibration check
+
+`app/mock_data_generator.py` simulates 30-minute chiller readings whose raw sensor levels, load relationships, and noise are calibrated to the LOF training distribution. It computes features with `engineer_features()` from `app/preprocessor.py`, the same code the live bridge uses, so synthetic and production features cannot drift apart.
+
+```bash
+python app/mock_data_generator.py      # writes synthetic_chiller_data.csv
+python app/score_synthetic_data.py     # writes synthetic_chiller_data_scored.csv, prints post-warm-up anomaly rate
+python scripts/check_synthetic_calibration.py   # regression check
+```
+
+The scorer imports `FEATURE_ORDER` from the preprocessor and raises an error on missing features instead of zero-filling them. Rows inside the 48-reading warm-up window are marked `is_warmup` and excluded from the reported rate.
+
+Expected results (seeds 1, 2, 3, 7, 42, 100, 2026): 0.1% to 0.9% of clean post-warm-up rows flagged, in line with the 0.6% rate the LOF model assigns to its own training rows.
+
+**Known sensitivity limits.** Gross faults are caught (PH1 flow cut to 30%: 100%; phase current L1 cut to 40%: 100%). Subtle faults mostly are not: condenser loop +6 °F: 0%; chilled-water supply +3 °F: 12%; PH1 flow at 75%: 2%. Treat the LOF score as a gross-fault detector and pair it with rule-based thresholds for gradual degradation.
+
+---
+
 ## Model facts
 
 | Property | Value |
@@ -315,6 +333,7 @@ docker compose --profile ingest run --rm copilot-ingest   # local-embedding inge
 | `POLL_INTERVAL_S` | `1800` | Bridge poll interval (seconds) |
 
 Copy `.env.copilot.example` → `.env.copilot` for copilot settings. Scripts load it automatically.
+Copy `.env.example` → `.env` for OPC UA bridge settings. Both `.env` and `.env.copilot` are git-ignored.
 
 ---
 
@@ -340,7 +359,7 @@ The copilot returns a `TroubleshootingDiagnosis` JSON object:
 - Do not commit OPC UA certificates, private keys, or production credentials.
 - Use environment variables or mounted secrets for sensitive configuration.
 - Prefer `SignAndEncrypt` security policies in production OPC UA connections.
-- Keep `.env.copilot` out of version control (use `.env.copilot.example` as a template).
+- Keep `.env` and `.env.copilot` out of version control (use `.env.example` and `.env.copilot.example` as templates).
 
 ---
 

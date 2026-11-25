@@ -1,461 +1,154 @@
-"""Synthetic Chiller Dashboard Data Generator
+"""Synthetic Chiller Data Generator (training-calibrated).
 
-Generates 1,000 rows of coherent synthetic chiller telemetry using
-`nemo_platform` if available, otherwise falling back to pandas.
+Generates coherent synthetic chiller telemetry that sits inside the operating
+envelope the LOF model was trained on, then derives all 197 features with the
+production pipeline (``preprocessor.engineer_features``).
 
-The simulation creates realistic base sensor signals first, then derives
-lag, rolling, ratio, and proxy features from those signals.
+Why this design
+---------------
+An earlier version re-implemented feature engineering locally. It drifted
+from the production preprocessor (for example ``*_d1``/``*_d2`` were lags
+instead of differences) and used sensor levels far from the training data,
+so the LOF model flagged 999 of 1,000 "normal" rows as anomalies. Reusing
+``engineer_features`` removes that class of offline/live drift.
+
+Calibration
+-----------
+Sensor levels, load sensitivity, residual noise, and autocorrelation below
+were estimated from the 2,754 training rows embedded in
+``model/lof_chiller_model.onnx`` (unscaled with ``model/scaler_model.onnx``).
+Supply-side sensors are modelled as ``a + b * load + AR(1) residual`` where
+``load`` is the chiller RLA (rated load amps, percent) following a daily
+profile. Return temperatures are supply plus a load-dependent delta-T, and
+phase currents follow RLA with fixed per-phase offsets.
+
+Notes
+-----
+* WET_BULB was effectively constant (about -71.02) in the training data,
+  which suggests a faulty or unconverted sensor at the training site. The
+  generator reproduces it so features stay in distribution; treat it as a
+  data-quality finding, not a physical value.
+* Training covered January to March, so timestamps start on 2026-02-02.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+import sys
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
 
-try:
-    import nemo_platform as nemo_platform
-except ImportError:  # pragma: no cover
-    nemo_platform = None
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from preprocessor import FEATURE_ORDER, RAW_SENSOR_COLS, engineer_features  # noqa: E402
 
-RAW_COLUMNS = [
-    "CHW_Return",
-    "CHW_Supply",
-    "RLA_L1",
-    "RLA_L2",
-    "RLA_L3",
-    "RLA_Avg",
-    "CW_Return",
-    "CW_Supply",
-    "PH1_FLOW",
-    "PH2_FLOW",
-    "FEEDBACK",
-    "SIGNAL",
-    "CURRENT_L2",
-    "CURRENT_L3",
-    "CURRENT_L1",
-    "WET_BULB",
-]
+# Hourly load profile (RLA_Avg %, training mean by hour of day).
+LOAD_BY_HOUR = np.array([
+    46.3, 45.8, 45.7, 45.4, 45.2, 45.0, 45.1, 45.0, 46.6, 47.7, 49.8, 49.5,
+    49.7, 49.8, 50.8, 50.8, 50.1, 48.9, 48.1, 47.4, 47.3, 47.0, 46.8, 46.3,
+])
+LOAD_SD = 9.0      # training RLA_Avg standard deviation is about 9.2
+LOAD_AR1 = 0.95
 
-DERIVED_COLUMNS = [
-    "CHW_delta",
-    "CW_delta",
-    "RLA_imbalance",
-    "CHW_Return_d1",
-    "CHW_Return_d2",
-    "CHW_Supply_d1",
-    "CHW_Supply_d2",
-    "CW_Return_d1",
-    "CW_Return_d2",
-    "CW_Supply_d1",
-    "CW_Supply_d2",
-    "RLA_L1_d1",
-    "RLA_L1_d2",
-    "RLA_L2_d1",
-    "RLA_L2_d2",
-    "RLA_L3_d1",
-    "RLA_L3_d2",
-    "RLA_Avg_d1",
-    "RLA_Avg_d2",
-    "PH1_FLOW_d1",
-    "PH1_FLOW_d2",
-    "PH2_FLOW_d1",
-    "PH2_FLOW_d2",
-    "FEEDBACK_d1",
-    "FEEDBACK_d2",
-    "SIGNAL_d1",
-    "SIGNAL_d2",
-    "CURRENT_L1_d1",
-    "CURRENT_L1_d2",
-    "CURRENT_L2_d1",
-    "CURRENT_L2_d2",
-    "CURRENT_L3_d1",
-    "CURRENT_L3_d2",
-    "CHW_Return_rmean_2h",
-    "CHW_Return_rstd_2h",
-    "CHW_Return_rrange_2h",
-    "CHW_Return_rmean_24h",
-    "CHW_Return_rstd_24h",
-    "CHW_Return_zscore_24h",
-    "CHW_Supply_rmean_2h",
-    "CHW_Supply_rstd_2h",
-    "CHW_Supply_rrange_2h",
-    "CHW_Supply_rmean_24h",
-    "CHW_Supply_rstd_24h",
-    "CHW_Supply_zscore_24h",
-    "CW_Return_rmean_2h",
-    "CW_Return_rstd_2h",
-    "CW_Return_rrange_2h",
-    "CW_Return_rmean_24h",
-    "CW_Return_rstd_24h",
-    "CW_Return_zscore_24h",
-    "CW_Supply_rmean_2h",
-    "CW_Supply_rstd_2h",
-    "CW_Supply_rrange_2h",
-    "CW_Supply_rmean_24h",
-    "CW_Supply_rstd_24h",
-    "CW_Supply_zscore_24h",
-    "RLA_L1_rmean_2h",
-    "RLA_L1_rstd_2h",
-    "RLA_L1_rrange_2h",
-    "RLA_L1_rmean_24h",
-    "RLA_L1_rstd_24h",
-    "RLA_L1_zscore_24h",
-    "RLA_L2_rmean_2h",
-    "RLA_L2_rstd_2h",
-    "RLA_L2_rrange_2h",
-    "RLA_L2_rmean_24h",
-    "RLA_L2_rstd_24h",
-    "RLA_L2_zscore_24h",
-    "RLA_L3_rmean_2h",
-    "RLA_L3_rstd_2h",
-    "RLA_L3_rrange_2h",
-    "RLA_L3_rmean_24h",
-    "RLA_L3_rstd_24h",
-    "RLA_L3_zscore_24h",
-    "RLA_Avg_rmean_2h",
-    "RLA_Avg_rstd_2h",
-    "RLA_Avg_rrange_2h",
-    "RLA_Avg_rmean_24h",
-    "RLA_Avg_rstd_24h",
-    "RLA_Avg_zscore_24h",
-    "PH1_FLOW_rmean_2h",
-    "PH1_FLOW_rstd_2h",
-    "PH1_FLOW_rrange_2h",
-    "PH1_FLOW_rmean_24h",
-    "PH1_FLOW_rstd_24h",
-    "PH1_FLOW_zscore_24h",
-    "PH2_FLOW_rmean_2h",
-    "PH2_FLOW_rstd_2h",
-    "PH2_FLOW_rrange_2h",
-    "PH2_FLOW_rmean_24h",
-    "PH2_FLOW_rstd_24h",
-    "PH2_FLOW_zscore_24h",
-    "WET_BULB_zscore_24h",
-    "FEEDBACK_rmean_2h",
-    "FEEDBACK_rstd_2h",
-    "FEEDBACK_rrange_2h",
-    "FEEDBACK_rmean_24h",
-    "FEEDBACK_rstd_24h",
-    "FEEDBACK_zscore_24h",
-    "SIGNAL_rmean_2h",
-    "SIGNAL_rstd_2h",
-    "SIGNAL_rrange_2h",
-    "SIGNAL_rmean_24h",
-    "SIGNAL_rstd_24h",
-    "SIGNAL_zscore_24h",
-    "CURRENT_L1_rmean_2h",
-    "CURRENT_L1_rstd_2h",
-    "CURRENT_L1_rrange_2h",
-    "CURRENT_L1_rmean_24h",
-    "CURRENT_L1_rstd_24h",
-    "CURRENT_L1_zscore_24h",
-    "CURRENT_L2_rmean_2h",
-    "CURRENT_L2_rstd_2h",
-    "CURRENT_L2_rrange_2h",
-    "CURRENT_L2_rmean_24h",
-    "CURRENT_L2_rstd_24h",
-    "CURRENT_L2_zscore_24h",
-    "CURRENT_L3_rmean_2h",
-    "CURRENT_L3_rstd_2h",
-    "CURRENT_L3_rrange_2h",
-    "CURRENT_L3_rmean_24h",
-    "CURRENT_L3_rstd_24h",
-    "CURRENT_L3_zscore_24h",
-    "CHW_delta_T",
-    "CHW_delta_T_d1",
-    "CHW_delta_T_d2",
-    "CW_delta_T",
-    "CW_delta_T_d1",
-    "RLA_spread",
-    "RLA_spread_d1",
-    "RLA_avg_calc",
-    "COP_proxy",
-    "COP_proxy_d1",
-    "Temp_ratio",
-    "is_weekend",
-    "is_business_hours",
-    "hour_sin",
-    "hour_cos",
-    "dow_sin",
-    "dow_cos",
-    "month_sin",
-    "month_cos",
-    "current_mean",
-    "current_imbalance",
-    "current_std_phases",
-    "current_imbalance_d1",
-    "RLA_cur_ratio_L1",
-    "RLA_cur_ratio_L2",
-    "RLA_cur_ratio_L3",
-    "tower_tracking_error",
-    "tower_tracking_error_abs",
-    "tower_nonresponse_flag",
-    "CW_approach_to_WB",
-    "CW_sup_vs_expected",
-    "total_flow",
-    "flow_imbalance",
-    "flow_imbalance_pct",
-    "cooling_tons_proxy",
-    "tons_per_RLA",
-    "RLA_weather_norm",
-    "RLA_EWMA_4h",
-    "CHW_ret_EWMA_4h",
-    "CW_ret_EWMA_4h",
-    "RLA_high_persistence_4h",
-    "RLA_high_persistence_8h",
-    "COP_7d_mean",
-    "COP_7d_drift",
-    "COP_3d_slope",
-    "CW_approach_7d_mean",
-    "CW_approach_drift",
-    "CW_approach_3d_slope",
-    "CHW_dT_7d_mean",
-    "CHW_dT_drift",
-    "CHW_dT_3d_slope",
-    "RLA_spread_7d_mean",
-    "RLA_spread_drift",
-    "RLA_spread_3d_slope",
-    "tower_err_3d_mean",
-    "tower_err_7d_mean",
-    "tower_err_drift",
-    "readings_since_start",
-]
+# sensor: (intercept a, load slope b, residual sd, residual AR(1))
+SENSOR_MODEL = {
+    "CHW_Supply": (43.581, -0.005, 0.510, 0.68),
+    "CW_Supply":  (60.652, 0.259, 2.112, 0.93),
+    "PH1_FLOW":   (1689.869, 4.353, 84.578, 0.95),
+    "PH2_FLOW":   (36.980, 4.995, 58.671, 0.91),
+    "SIGNAL":     (-18.982, 1.986, 21.220, 0.90),
+}
+RLA_PHASE_MODEL = {  # phase = a + b * load + AR(1) residual
+    "RLA_L1": (-0.225, 0.971, 0.611, 0.44),
+    "RLA_L2": (-0.418, 1.017, 0.585, 0.32),
+    "RLA_L3": (0.834, 1.008, 0.692, 0.54),
+}
+# Return temperatures are modelled as supply + delta-T so the loop stays coherent.
+# delta: (intercept a, load slope b, residual sd, residual AR(1))
+DELTA_T_MODEL = {
+    "CHW_Return": ("CHW_Supply", (-0.3216, 0.1102, 0.694, 0.84)),
+    "CW_Return":  ("CW_Supply",  (-3.2769, 0.1443, 0.482, 0.66)),
+}
+RLA_PER_AMP = 0.228          # training median RLA / phase current
+PHASE_CURRENT_OFFSET = {"L1": -6.88, "L2": 1.62, "L3": 5.26}   # A, vs phase mean
+PHASE_CURRENT_SD = 2.1
+TRACKING_ERROR_SD = 8.0      # FEEDBACK minus SIGNAL residual
+WET_BULB_TRAINING = -71.02
 
 
-def _to_nemo_dataframe(df: pd.DataFrame) -> Any:
-    if nemo_platform is None:
-        return df
-
-    if hasattr(nemo_platform, "DataFrame"):
-        try:
-            return nemo_platform.DataFrame(df)
-        except Exception:
-            pass
-
-    if hasattr(nemo_platform, "from_pandas"):
-        try:
-            return nemo_platform.from_pandas(df)
-        except Exception:
-            pass
-
-    return df
+def _ar1(rng: np.random.Generator, n: int, sd: float, phi: float) -> np.ndarray:
+    """Stationary AR(1) noise with marginal standard deviation ``sd``."""
+    eps = rng.normal(0.0, sd * np.sqrt(1.0 - phi**2), n)
+    out = np.empty(n)
+    out[0] = rng.normal(0.0, sd)
+    for i in range(1, n):
+        out[i] = phi * out[i - 1] + eps[i]
+    return out
 
 
-def _simulate_base_series(n_rows: int = 1000, freq_mins: int = 30, seed: int = 42) -> pd.DataFrame:
+def simulate_raw(n_rows: int = 1000, seed: int = 42,
+                 start: str = "2026-02-02T00:00:00Z") -> pd.DataFrame:
+    """Simulate the 16 raw OPC UA sensors at a 30-minute cadence."""
     rng = np.random.default_rng(seed)
-    index = pd.date_range(start="2026-01-01T00:00:00", periods=n_rows, freq=f"{freq_mins}min")
-    hour = index.hour + index.minute / 60.0
-    day_of_year = index.dayofyear
-    week_day = index.dayofweek
-    month = index.month
+    index = pd.date_range(start=start, periods=n_rows, freq="30min")
+    hour = index.hour.to_numpy()
 
-    oscillation = np.sin(2 * np.pi * hour / 24)
-    seasonal = 2.5 * np.sin(2 * np.pi * day_of_year / 365)
+    load = np.clip(LOAD_BY_HOUR[hour] + _ar1(rng, n_rows, LOAD_SD, LOAD_AR1), 10, 95)
 
-    wet_bulb = 65 + 8 * oscillation + 2.0 * np.sin(2 * np.pi * month / 12) + rng.normal(0, 0.8, n_rows)
-    chw_return = 59 + 4.5 * oscillation - 0.8 * np.cos(2 * np.pi * day_of_year / 365) + rng.normal(0, 0.5, n_rows)
-    chw_supply = chw_return - (5.5 + 0.5 * rng.normal(0, 1.0, n_rows))
-    cw_return = 75 + 6.0 * oscillation + 1.0 * np.sin(2 * np.pi * day_of_year / 365) + rng.normal(0, 0.6, n_rows)
-    cw_supply = cw_return - (8.3 + 0.6 * rng.normal(0, 1.0, n_rows))
+    raw: dict[str, np.ndarray] = {}
+    for name, (a, b, sd, phi) in SENSOR_MODEL.items():
+        raw[name] = a + b * load + _ar1(rng, n_rows, sd, phi)
+    for name, (a, b, sd, phi) in RLA_PHASE_MODEL.items():
+        raw[name] = np.round(a + b * load + _ar1(rng, n_rows, sd, phi))
+    raw["RLA_Avg"] = (raw["RLA_L1"] + raw["RLA_L2"] + raw["RLA_L3"]) / 3.0
 
-    base_demand = 700 + 80 * np.sin(2 * np.pi * hour / 24) + 20 * np.cos(2 * np.pi * week_day / 7)
-    ph1_flow = base_demand * (0.52 + rng.normal(0, 0.02, n_rows))
-    ph2_flow = base_demand * (0.48 + rng.normal(0, 0.02, n_rows))
-    total_flow = ph1_flow + ph2_flow
+    for name, (supply, (a, b, sd, phi)) in DELTA_T_MODEL.items():
+        raw[name] = raw[supply] + a + b * load + _ar1(rng, n_rows, sd, phi)
 
-    current_base = 210 + 15 * np.sin(2 * np.pi * hour / 24) + rng.normal(0, 4.0, n_rows)
-    current_l1 = current_base + rng.normal(0, 2.0, n_rows)
-    current_l2 = current_base + rng.normal(0, 2.2, n_rows)
-    current_l3 = current_base + rng.normal(0, 2.5, n_rows)
+    ratio = RLA_PER_AMP * (1.0 + _ar1(rng, n_rows, 0.06, 0.9))
+    current_mean = raw["RLA_Avg"] / ratio
+    for phase, offset in PHASE_CURRENT_OFFSET.items():
+        raw[f"CURRENT_{phase}"] = current_mean + offset + rng.normal(0.0, PHASE_CURRENT_SD, n_rows)
 
-    rla_l1 = 62 + 14 * (total_flow / total_flow.max()) + rng.normal(0, 2.0, n_rows)
-    rla_l2 = rla_l1 + rng.normal(0, 1.8, n_rows)
-    rla_l3 = rla_l1 - rng.normal(0, 1.6, n_rows)
-    rla_avg = np.minimum(100.0, np.maximum(0.0, (rla_l1 + rla_l2 + rla_l3) / 3))
-
-    feedback = 50 + 15 * np.sin(2 * np.pi * hour / 24 + 0.6) + rng.normal(0, 2.0, n_rows)
-    signal = feedback + rng.normal(0, 2.5, n_rows)
-
-    return pd.DataFrame(
-        {
-            "CHW_Return": chw_return,
-            "CHW_Supply": chw_supply,
-            "RLA_L1": rla_l1,
-            "RLA_L2": rla_l2,
-            "RLA_L3": rla_l3,
-            "RLA_Avg": rla_avg,
-            "CW_Return": cw_return,
-            "CW_Supply": cw_supply,
-            "PH1_FLOW": ph1_flow,
-            "PH2_FLOW": ph2_flow,
-            "FEEDBACK": feedback,
-            "SIGNAL": signal,
-            "CURRENT_L1": current_l1,
-            "CURRENT_L2": current_l2,
-            "CURRENT_L3": current_l3,
-            "WET_BULB": wet_bulb,
-        },
-        index=index,
+    raw["SIGNAL"] = np.clip(raw["SIGNAL"], 0.0, 100.0)
+    raw["FEEDBACK"] = np.clip(
+        raw["SIGNAL"] + 3.0 + _ar1(rng, n_rows, TRACKING_ERROR_SD, 0.85), 0.0, 100.0
     )
+    raw["WET_BULB"] = WET_BULB_TRAINING + rng.normal(0.0, 0.03, n_rows)
 
-
-def _add_lags(df: pd.DataFrame, columns: list[str], lags: list[int]) -> pd.DataFrame:
-    for column in columns:
-        for lag in lags:
-            df[f"{column}_d{lag}"] = df[column].shift(lag)
+    df = pd.DataFrame({c: raw[c] for c in RAW_SENSOR_COLS}, index=index)
+    df.index.name = "_ts"
     return df
 
 
-def _rolling_stats(df: pd.DataFrame, column: str, window: int, suffix: str) -> pd.Series:
-    rolling = df[column].rolling(window=window, min_periods=1)
-    if suffix == "mean":
-        return rolling.mean()
-    if suffix == "std":
-        return rolling.std(ddof=0)
-    if suffix == "range":
-        return rolling.max() - rolling.min()
-    raise ValueError(f"Unknown suffix {suffix}")
+def build_synthetic_dataset(n_rows: int = 1000, seed: int = 42,
+                            readings_offset: int = 500) -> pd.DataFrame:
+    """Raw sensors plus all FEATURE_ORDER columns, computed by production code.
+
+    ``readings_offset`` places the chiller mid-run (the training data never
+    shows a cold start), matching how ``ChillerPreprocessor.update`` counts.
+    """
+    raw = simulate_raw(n_rows=n_rows, seed=seed)
+    raw["_readings_since_start"] = readings_offset + np.arange(n_rows, dtype=float)
+    features = engineer_features(raw)
+    cols = list(dict.fromkeys(RAW_SENSOR_COLS + FEATURE_ORDER))
+    out = features[cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    out.index = out.index.tz_localize(None) if out.index.tz is not None else out.index
+    return out
 
 
-def _zscore_24h(series: pd.Series, window: int = 48) -> pd.Series:
-    mean_24h = series.rolling(window=window, min_periods=1).mean()
-    std_24h = series.rolling(window=window, min_periods=1).std(ddof=0)
-    return (series - mean_24h) / (std_24h.replace(0, np.nan) + 1e-6)
+def save_synthetic_dataset(data: pd.DataFrame,
+                           path: str | Path = "synthetic_chiller_data.csv") -> None:
+    data.to_csv(path, index=True, index_label="timestamp")
 
 
-def _slope(series: pd.Series, window: int) -> pd.Series:
-    def slope_window(values: np.ndarray) -> float:
-        x = np.arange(len(values))
-        if len(values) < 2 or np.allclose(values, values[0]):
-            return 0.0
-        coef = np.polyfit(x, values, 1)
-        return float(coef[0])
-
-    return series.rolling(window=window, min_periods=2).apply(slope_window, raw=True)
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _derive_features(raw: pd.DataFrame) -> pd.DataFrame:
-    df = raw.copy()
-    df["CHW_delta"] = df["CHW_Return"] - df["CHW_Supply"]
-    df["CW_delta"] = df["CW_Return"] - df["CW_Supply"]
-    df["RLA_imbalance"] = df[["RLA_L1", "RLA_L2", "RLA_L3"]].max(axis=1) - df[["RLA_L1", "RLA_L2", "RLA_L3"]].min(axis=1)
-    df["RLA_avg_calc"] = df[["RLA_L1", "RLA_L2", "RLA_L3"]].mean(axis=1)
-    df["CHW_delta_T"] = df["CHW_delta"]
-    df["CW_delta_T"] = df["CW_delta"]
-    df["Temp_ratio"] = (df["CHW_Return"] - df["CW_Return"]) / (df["WET_BULB"] + 1)
-    df["total_flow"] = df["PH1_FLOW"] + df["PH2_FLOW"]
-    df["flow_imbalance"] = (df["PH1_FLOW"] - df["PH2_FLOW"]).abs()
-    df["flow_imbalance_pct"] = df["flow_imbalance"] / (df["total_flow"] + 1e-6)
-    df["current_mean"] = df[["CURRENT_L1", "CURRENT_L2", "CURRENT_L3"]].mean(axis=1)
-    df["current_imbalance"] = df[["CURRENT_L1", "CURRENT_L2", "CURRENT_L3"]].max(axis=1) - df[["CURRENT_L1", "CURRENT_L2", "CURRENT_L3"]].min(axis=1)
-    df["current_std_phases"] = df[["CURRENT_L1", "CURRENT_L2", "CURRENT_L3"]].std(axis=1, ddof=0)
-    df["tower_tracking_error"] = df["FEEDBACK"] - df["SIGNAL"]
-    df["tower_tracking_error_abs"] = df["tower_tracking_error"].abs()
-    df["tower_nonresponse_flag"] = ((df["tower_tracking_error_abs"] < 1.2) & (df["SIGNAL"].diff().abs() < 0.2)).astype(int)
-    df["CW_approach_to_WB"] = df["CW_Supply"] - df["WET_BULB"]
-    df["CW_sup_vs_expected"] = df["CW_Supply"] - (df["WET_BULB"] + 10)
-    df["cooling_tons_proxy"] = df["total_flow"] * df["CHW_delta"] / 24.0
-    df["tons_per_RLA"] = df["cooling_tons_proxy"] / (df["RLA_Avg"] + 1.0)
-    df["RLA_weather_norm"] = df["RLA_Avg"] - 0.12 * (df["WET_BULB"] - 70)
-    df["RLA_spread"] = df["RLA_Avg"] - df[["RLA_L1", "RLA_L2", "RLA_L3"]].min(axis=1)
-
-    df = _add_lags(df, RAW_COLUMNS + ["CHW_delta", "CW_delta", "CHW_delta_T", "CW_delta_T", "RLA_spread"], [1, 2])
-
-    df["RLA_EWMA_4h"] = df["RLA_Avg"].ewm(span=8, adjust=False).mean()
-    df["CHW_ret_EWMA_4h"] = df["CHW_Return"].ewm(span=8, adjust=False).mean()
-    df["CW_ret_EWMA_4h"] = df["CW_Return"].ewm(span=8, adjust=False).mean()
-
-    df["RLA_high_persistence_4h"] = (df["RLA_Avg"].rolling(window=8, min_periods=1).mean() > 85).astype(int)
-    df["RLA_high_persistence_8h"] = (df["RLA_Avg"].rolling(window=16, min_periods=1).mean() > 80).astype(int)
-
-    df["COP_proxy"] = df["cooling_tons_proxy"] / (df["RLA_Avg"] + 1.0)
-    df["COP_proxy_d1"] = df["COP_proxy"].shift(1)
-
-    df["is_weekend"] = df.index.dayofweek >= 5
-    df["is_business_hours"] = ((df.index.hour >= 8) & (df.index.hour < 18))
-    df["hour_sin"] = np.sin(2 * np.pi * df.index.hour / 24)
-    df["hour_cos"] = np.cos(2 * np.pi * df.index.hour / 24)
-    df["dow_sin"] = np.sin(2 * np.pi * df.index.dayofweek / 7)
-    df["dow_cos"] = np.cos(2 * np.pi * df.index.dayofweek / 7)
-    df["month_sin"] = np.sin(2 * np.pi * df.index.month / 12)
-    df["month_cos"] = np.cos(2 * np.pi * df.index.month / 12)
-
-    for col in [
-        "CHW_Return",
-        "CHW_Supply",
-        "CW_Return",
-        "CW_Supply",
-        "RLA_L1",
-        "RLA_L2",
-        "RLA_L3",
-        "RLA_Avg",
-        "PH1_FLOW",
-        "PH2_FLOW",
-        "FEEDBACK",
-        "SIGNAL",
-        "CURRENT_L1",
-        "CURRENT_L2",
-        "CURRENT_L3",
-        "WET_BULB",
-    ]:
-        df[f"{col}_rmean_2h"] = df[col].rolling(window=4, min_periods=1).mean()
-        df[f"{col}_rstd_2h"] = df[col].rolling(window=4, min_periods=1).std(ddof=0)
-        df[f"{col}_rrange_2h"] = df[col].rolling(window=4, min_periods=1).max() - df[col].rolling(window=4, min_periods=1).min()
-        df[f"{col}_rmean_24h"] = df[col].rolling(window=48, min_periods=1).mean()
-        df[f"{col}_rstd_24h"] = df[col].rolling(window=48, min_periods=1).std(ddof=0)
-        df[f"{col}_zscore_24h"] = _zscore_24h(df[col], window=48)
-
-    df["CW_approach_7d_mean"] = df["CW_approach_to_WB"].rolling(window=336, min_periods=1).mean()
-    df["CW_approach_drift"] = df["CW_approach_to_WB"] - df["CW_approach_7d_mean"]
-    df["CW_approach_3d_slope"] = _slope(df["CW_approach_to_WB"], window=144)
-
-    df["CHW_dT_7d_mean"] = df["CHW_delta_T"].rolling(window=336, min_periods=1).mean()
-    df["CHW_dT_drift"] = df["CHW_delta_T"] - df["CHW_dT_7d_mean"]
-    df["CHW_dT_3d_slope"] = _slope(df["CHW_delta_T"], window=144)
-
-    df["RLA_spread_7d_mean"] = df["RLA_spread"].rolling(window=336, min_periods=1).mean()
-    df["RLA_spread_drift"] = df["RLA_spread"] - df["RLA_spread_7d_mean"]
-    df["RLA_spread_3d_slope"] = _slope(df["RLA_spread"], window=144)
-
-    df["tower_err_3d_mean"] = df["tower_tracking_error"].rolling(window=144, min_periods=1).mean()
-    df["tower_err_7d_mean"] = df["tower_tracking_error"].rolling(window=336, min_periods=1).mean()
-    df["tower_err_drift"] = df["tower_tracking_error"] - df["tower_err_7d_mean"]
-
-    df["COP_7d_mean"] = df["COP_proxy"].rolling(window=336, min_periods=1).mean()
-    df["COP_7d_drift"] = df["COP_proxy"] - df["COP_7d_mean"]
-    df["COP_3d_slope"] = _slope(df["COP_proxy"], window=144)
-
-    df["readings_since_start"] = np.arange(len(df), dtype=int)
-
-    df = df.ffill().fillna(0)
-    return df
-
-
-def build_synthetic_dataset(n_rows: int = 1000, seed: int = 42) -> Any:
-    raw = _simulate_base_series(n_rows=n_rows, seed=seed)
-    derived = _derive_features(raw)
-    derived = derived[RAW_COLUMNS + [c for c in derived.columns if c not in RAW_COLUMNS]]
-    return _to_nemo_dataframe(derived)
-
-
-def save_synthetic_dataset(data: Any, path: str | Path = "synthetic_chiller_data.csv") -> None:
-    if hasattr(data, "to_pandas"):
-        data = data.to_pandas()
-    if hasattr(data, "to_csv"):
-        data.to_csv(path, index=True)
-        return
-
-    pd.DataFrame(data).to_csv(path, index=True)
-
-
-def main(output_path: str = "synthetic_chiller_data.csv") -> None:
+def main(output_path: str | Path = REPO_ROOT / "synthetic_chiller_data.csv") -> None:
     dataset = build_synthetic_dataset(n_rows=1000)
     save_synthetic_dataset(dataset, output_path)
-    print(f"Generated synthetic data for dashboard design: {output_path}")
+    print(f"Generated {len(dataset)} rows of training-calibrated synthetic data: {output_path}")
 
 
 if __name__ == "__main__":

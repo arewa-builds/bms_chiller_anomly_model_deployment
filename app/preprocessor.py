@@ -16,6 +16,8 @@ Raw sensors required (16 values from OPC-UA, in any order via dict):
     CURRENT_L1, CURRENT_L2, CURRENT_L3, WET_BULB
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import joblib
@@ -107,6 +109,177 @@ RAW_SENSOR_COLS = [
 ]
 
 
+
+def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute all engineered features for a time-indexed frame of raw readings.
+
+    This is the single source of truth for the 197-feature pipeline. It is used
+    by ChillerPreprocessor (live OPC UA path) and by the synthetic data
+    generator and batch scorer, so offline and live features cannot drift.
+
+    Parameters
+    ----------
+    df : DataFrame indexed by UTC timestamps (30-minute cadence) with the
+         RAW_SENSOR_COLS columns plus ``_readings_since_start``.
+
+    Returns
+    -------
+    DataFrame with every column in FEATURE_ORDER (unscaled), one row per input.
+    """
+    with warnings.catch_warnings():
+        # Column-by-column inserts trigger PerformanceWarning; output is unaffected.
+        warnings.simplefilter("ignore", pd.errors.PerformanceWarning)
+        return _engineer_features_impl(df)
+
+
+def _engineer_features_impl(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    # ── Step 1: rolling-median noise smoothing (Groups from notebook) ──
+    sprint2_smooth = ["PH1_FLOW","PH2_FLOW","WET_BULB","FEEDBACK",
+                      "SIGNAL","CURRENT_L1","CURRENT_L2","CURRENT_L3"]
+    for col in sprint2_smooth:
+        if col in df.columns:
+            df[col] = df[col].rolling(
+                window=SMOOTH_WIN, center=True, min_periods=1
+            ).median()
+
+    # ── Group A: 1st and 2nd derivatives ────────────────────────────────
+    deriv_cols = [c for c in RAW_SENSOR_COLS if c in df.columns and c != "WET_BULB"]
+    for col in deriv_cols:
+        df[f"{col}_d1"] = df[col].diff()
+        df[f"{col}_d2"] = df[col].diff().diff()
+
+    # ── Group B: rolling statistics ──────────────────────────────────────
+    roll_cols = [c for c in RAW_SENSOR_COLS if c in df.columns]
+    for col in roll_cols:
+        roll_s = df[col].rolling(WIN_SHORT, min_periods=2)
+        roll_l = df[col].rolling(WIN_LONG,  min_periods=12)
+        df[f"{col}_rmean_2h"]   = roll_s.mean()
+        df[f"{col}_rstd_2h"]    = roll_s.std()
+        df[f"{col}_rrange_2h"]  = roll_s.max() - roll_s.min()
+        df[f"{col}_rmean_24h"]  = roll_l.mean()
+        df[f"{col}_rstd_24h"]   = roll_l.std()
+        df[f"{col}_zscore_24h"] = (
+            (df[col] - df[f"{col}_rmean_24h"]) /
+            (df[f"{col}_rstd_24h"] + 1e-8)
+        )
+
+    # ── Group C: thermodynamic deltas ────────────────────────────────────
+    df["CHW_delta_T"]    = df["CHW_Return"] - df["CHW_Supply"]
+    df["CHW_delta_T_d1"] = df["CHW_delta_T"].diff()
+    df["CHW_delta_T_d2"] = df["CHW_delta_T"].diff().diff()
+    df["CW_delta_T"]     = df["CW_Return"]  - df["CW_Supply"]
+    df["CW_delta_T_d1"]  = df["CW_delta_T"].diff()
+    df["CHW_delta"]      = df["CHW_delta_T"]   # alias used in feature list
+    df["CW_delta"]       = df["CW_delta_T"]    # alias used in feature list
+
+    rla_phases = ["RLA_L1","RLA_L2","RLA_L3"]
+    df["RLA_spread"]    = df[rla_phases].max(axis=1) - df[rla_phases].min(axis=1)
+    df["RLA_spread_d1"] = df["RLA_spread"].diff()
+    df["RLA_avg_calc"]  = df[rla_phases].mean(axis=1)
+    df["RLA_imbalance"] = df["RLA_spread"]   # alias
+
+    df["COP_proxy"]    = df["CHW_delta_T"] / (df["RLA_avg_calc"] / 100 + 1e-8)
+    df["COP_proxy_d1"] = df["COP_proxy"].diff()
+    df["Temp_ratio"]   = df["CHW_delta_T"] / (df["CW_delta_T"] + 1e-6)
+
+    # ── Group D: cyclic time features ────────────────────────────────────
+    df["hour"]              = df.index.hour
+    df["day_of_week"]       = df.index.dayofweek
+    df["month_num"]         = df.index.month
+    df["is_weekend"]        = (df.index.dayofweek >= 5).astype(float)
+    df["is_business_hours"] = (
+        (df.index.hour >= 7) & (df.index.hour <= 19)
+    ).astype(float)
+    df["hour_sin"]  = np.sin(2 * np.pi * df["hour"]        / 24)
+    df["hour_cos"]  = np.cos(2 * np.pi * df["hour"]        / 24)
+    df["dow_sin"]   = np.sin(2 * np.pi * df["day_of_week"] /  7)
+    df["dow_cos"]   = np.cos(2 * np.pi * df["day_of_week"] /  7)
+    df["month_sin"] = np.sin(2 * np.pi * df["month_num"]   / 12)
+    df["month_cos"] = np.cos(2 * np.pi * df["month_num"]   / 12)
+
+    # ── Group E: current × RLA features ─────────────────────────────────
+    cur_df   = df[["CURRENT_L1","CURRENT_L2","CURRENT_L3"]]
+    cur_mean = cur_df.mean(axis=1)
+    df["current_mean"]         = cur_mean
+    df["current_imbalance"]    = (
+        (cur_df.max(axis=1) - cur_df.min(axis=1)) / (cur_mean + 1e-8) * 100
+    )
+    df["current_std_phases"]   = cur_df.std(axis=1)
+    df["current_imbalance_d1"] = df["current_imbalance"].diff()
+    for rla_c, cur_c, tag in [
+        ("RLA_L1","CURRENT_L1","L1"),
+        ("RLA_L2","CURRENT_L2","L2"),
+        ("RLA_L3","CURRENT_L3","L3"),
+    ]:
+        df[f"RLA_cur_ratio_{tag}"] = df[rla_c] / (df[cur_c] + 1e-8)
+
+    # ── Group F: tower efficiency ─────────────────────────────────────────
+    df["tower_tracking_error"]     = df["FEEDBACK"] - df["SIGNAL"]
+    df["tower_tracking_error_abs"] = df["tower_tracking_error"].abs()
+    df["tower_nonresponse_flag"]   = (
+        (df["SIGNAL"] > 50) & (df["tower_tracking_error"] < -10)
+    ).astype(float)
+
+    # ── Group G (weather) + Group G (flow) ───────────────────────────────
+    df["WB_roll_mean8"]     = df["WET_BULB"].rolling(8).mean()
+    df["CW_approach_to_WB"] = df["CW_Supply"] - df["WET_BULB"]
+    df["CW_sup_expected"]   = df["WB_roll_mean8"] + 6.0
+    df["CW_sup_vs_expected"]= df["CW_Supply"] - df["CW_sup_expected"]
+
+    df["total_flow"]         = df["PH1_FLOW"] + df["PH2_FLOW"]
+    df["flow_imbalance"]     = (df["PH1_FLOW"] - df["PH2_FLOW"]).abs()
+    df["flow_imbalance_pct"] = df["flow_imbalance"] / (df["total_flow"] + 1e-8) * 100
+    df["cooling_tons_proxy"] = df["total_flow"] * df["CHW_delta_T"]
+    df["tons_per_RLA"]       = df["cooling_tons_proxy"] / (df["RLA_Avg"] + 1e-8)
+
+    # ── Group I: weather interaction ──────────────────────────────────────
+    df["RLA_weather_norm"] = df["RLA_Avg"] / (df["WB_roll_mean8"] + 32 + 1e-8)
+
+    # ── Group J: EWMA + persistence ──────────────────────────────────────
+    df["RLA_EWMA_4h"]        = df["RLA_Avg"].ewm(span=EWMA_SPAN, adjust=False).mean()
+    df["CHW_ret_EWMA_4h"]    = df["CHW_Return"].ewm(span=EWMA_SPAN, adjust=False).mean()
+    df["CW_ret_EWMA_4h"]     = df["CW_Return"].ewm(span=EWMA_SPAN, adjust=False).mean()
+    df["RLA_high_flag"]           = (df["RLA_Avg"] > 80).astype(float)
+    df["RLA_high_persistence_4h"] = df["RLA_high_flag"].rolling(8).sum()
+    df["RLA_high_persistence_8h"] = df["RLA_high_flag"].rolling(16).sum()
+
+    # ── Group K: multi-day trend features ────────────────────────────────
+    df["COP_7d_mean"]  = df["COP_proxy"].rolling(W7D, min_periods=48).mean()
+    df["COP_7d_drift"] = df["COP_proxy"] - df["COP_7d_mean"]
+    df["COP_3d_slope"] = (
+        df["COP_proxy"].rolling(W3D, min_periods=24).mean() -
+        df["COP_proxy"].rolling(W7D, min_periods=48).mean()
+    )
+    df["CW_approach_7d_mean"]  = df["CW_delta_T"].rolling(W7D, min_periods=48).mean()
+    df["CW_approach_drift"]    = df["CW_delta_T"] - df["CW_approach_7d_mean"]
+    df["CW_approach_3d_slope"] = (
+        df["CW_delta_T"].rolling(W3D, min_periods=24).mean() -
+        df["CW_delta_T"].rolling(W7D, min_periods=48).mean()
+    )
+    df["CHW_dT_7d_mean"]  = df["CHW_delta_T"].rolling(W7D, min_periods=48).mean()
+    df["CHW_dT_drift"]    = df["CHW_delta_T"] - df["CHW_dT_7d_mean"]
+    df["CHW_dT_3d_slope"] = (
+        df["CHW_delta_T"].rolling(W3D, min_periods=24).mean() -
+        df["CHW_delta_T"].rolling(W7D, min_periods=48).mean()
+    )
+    df["RLA_spread_7d_mean"]  = df["RLA_spread"].rolling(W7D, min_periods=48).mean()
+    df["RLA_spread_drift"]    = df["RLA_spread"] - df["RLA_spread_7d_mean"]
+    df["RLA_spread_3d_slope"] = (
+        df["RLA_spread"].rolling(W3D, min_periods=24).mean() -
+        df["RLA_spread"].rolling(W7D, min_periods=48).mean()
+    )
+    df["tower_err_3d_mean"] = df["tower_tracking_error_abs"].rolling(W3D, min_periods=24).mean()
+    df["tower_err_7d_mean"] = df["tower_tracking_error_abs"].rolling(W7D, min_periods=48).mean()
+    df["tower_err_drift"]   = df["tower_err_3d_mean"] - df["tower_err_7d_mean"]
+
+    # Startup counter (stored per-row from update())
+    df["readings_since_start"] = df["_readings_since_start"]
+    return df
+
+
 class ChillerPreprocessor:
     """
     Stateful rolling-window preprocessor.
@@ -168,149 +341,7 @@ class ChillerPreprocessor:
         if not self.is_warm():
             return None
 
-        df = pd.DataFrame(list(self._buf)).set_index("_ts")
-
-        # ── Step 1: rolling-median noise smoothing (Groups from notebook) ──
-        sprint2_smooth = ["PH1_FLOW","PH2_FLOW","WET_BULB","FEEDBACK",
-                          "SIGNAL","CURRENT_L1","CURRENT_L2","CURRENT_L3"]
-        for col in sprint2_smooth:
-            if col in df.columns:
-                df[col] = df[col].rolling(
-                    window=SMOOTH_WIN, center=True, min_periods=1
-                ).median()
-
-        # ── Group A: 1st and 2nd derivatives ────────────────────────────────
-        deriv_cols = [c for c in RAW_SENSOR_COLS if c in df.columns and c != "WET_BULB"]
-        for col in deriv_cols:
-            df[f"{col}_d1"] = df[col].diff()
-            df[f"{col}_d2"] = df[col].diff().diff()
-
-        # ── Group B: rolling statistics ──────────────────────────────────────
-        roll_cols = [c for c in RAW_SENSOR_COLS if c in df.columns]
-        for col in roll_cols:
-            roll_s = df[col].rolling(WIN_SHORT, min_periods=2)
-            roll_l = df[col].rolling(WIN_LONG,  min_periods=12)
-            df[f"{col}_rmean_2h"]   = roll_s.mean()
-            df[f"{col}_rstd_2h"]    = roll_s.std()
-            df[f"{col}_rrange_2h"]  = roll_s.max() - roll_s.min()
-            df[f"{col}_rmean_24h"]  = roll_l.mean()
-            df[f"{col}_rstd_24h"]   = roll_l.std()
-            df[f"{col}_zscore_24h"] = (
-                (df[col] - df[f"{col}_rmean_24h"]) /
-                (df[f"{col}_rstd_24h"] + 1e-8)
-            )
-
-        # ── Group C: thermodynamic deltas ────────────────────────────────────
-        df["CHW_delta_T"]    = df["CHW_Return"] - df["CHW_Supply"]
-        df["CHW_delta_T_d1"] = df["CHW_delta_T"].diff()
-        df["CHW_delta_T_d2"] = df["CHW_delta_T"].diff().diff()
-        df["CW_delta_T"]     = df["CW_Return"]  - df["CW_Supply"]
-        df["CW_delta_T_d1"]  = df["CW_delta_T"].diff()
-        df["CHW_delta"]      = df["CHW_delta_T"]   # alias used in feature list
-        df["CW_delta"]       = df["CW_delta_T"]    # alias used in feature list
-
-        rla_phases = ["RLA_L1","RLA_L2","RLA_L3"]
-        df["RLA_spread"]    = df[rla_phases].max(axis=1) - df[rla_phases].min(axis=1)
-        df["RLA_spread_d1"] = df["RLA_spread"].diff()
-        df["RLA_avg_calc"]  = df[rla_phases].mean(axis=1)
-        df["RLA_imbalance"] = df["RLA_spread"]   # alias
-
-        df["COP_proxy"]    = df["CHW_delta_T"] / (df["RLA_avg_calc"] / 100 + 1e-8)
-        df["COP_proxy_d1"] = df["COP_proxy"].diff()
-        df["Temp_ratio"]   = df["CHW_delta_T"] / (df["CW_delta_T"] + 1e-6)
-
-        # ── Group D: cyclic time features ────────────────────────────────────
-        df["hour"]              = df.index.hour
-        df["day_of_week"]       = df.index.dayofweek
-        df["month_num"]         = df.index.month
-        df["is_weekend"]        = (df.index.dayofweek >= 5).astype(float)
-        df["is_business_hours"] = (
-            (df.index.hour >= 7) & (df.index.hour <= 19)
-        ).astype(float)
-        df["hour_sin"]  = np.sin(2 * np.pi * df["hour"]        / 24)
-        df["hour_cos"]  = np.cos(2 * np.pi * df["hour"]        / 24)
-        df["dow_sin"]   = np.sin(2 * np.pi * df["day_of_week"] /  7)
-        df["dow_cos"]   = np.cos(2 * np.pi * df["day_of_week"] /  7)
-        df["month_sin"] = np.sin(2 * np.pi * df["month_num"]   / 12)
-        df["month_cos"] = np.cos(2 * np.pi * df["month_num"]   / 12)
-
-        # ── Group E: current × RLA features ─────────────────────────────────
-        cur_df   = df[["CURRENT_L1","CURRENT_L2","CURRENT_L3"]]
-        cur_mean = cur_df.mean(axis=1)
-        df["current_mean"]         = cur_mean
-        df["current_imbalance"]    = (
-            (cur_df.max(axis=1) - cur_df.min(axis=1)) / (cur_mean + 1e-8) * 100
-        )
-        df["current_std_phases"]   = cur_df.std(axis=1)
-        df["current_imbalance_d1"] = df["current_imbalance"].diff()
-        for rla_c, cur_c, tag in [
-            ("RLA_L1","CURRENT_L1","L1"),
-            ("RLA_L2","CURRENT_L2","L2"),
-            ("RLA_L3","CURRENT_L3","L3"),
-        ]:
-            df[f"RLA_cur_ratio_{tag}"] = df[rla_c] / (df[cur_c] + 1e-8)
-
-        # ── Group F: tower efficiency ─────────────────────────────────────────
-        df["tower_tracking_error"]     = df["FEEDBACK"] - df["SIGNAL"]
-        df["tower_tracking_error_abs"] = df["tower_tracking_error"].abs()
-        df["tower_nonresponse_flag"]   = (
-            (df["SIGNAL"] > 50) & (df["tower_tracking_error"] < -10)
-        ).astype(float)
-
-        # ── Group G (weather) + Group G (flow) ───────────────────────────────
-        df["WB_roll_mean8"]     = df["WET_BULB"].rolling(8).mean()
-        df["CW_approach_to_WB"] = df["CW_Supply"] - df["WET_BULB"]
-        df["CW_sup_expected"]   = df["WB_roll_mean8"] + 6.0
-        df["CW_sup_vs_expected"]= df["CW_Supply"] - df["CW_sup_expected"]
-
-        df["total_flow"]         = df["PH1_FLOW"] + df["PH2_FLOW"]
-        df["flow_imbalance"]     = (df["PH1_FLOW"] - df["PH2_FLOW"]).abs()
-        df["flow_imbalance_pct"] = df["flow_imbalance"] / (df["total_flow"] + 1e-8) * 100
-        df["cooling_tons_proxy"] = df["total_flow"] * df["CHW_delta_T"]
-        df["tons_per_RLA"]       = df["cooling_tons_proxy"] / (df["RLA_Avg"] + 1e-8)
-
-        # ── Group I: weather interaction ──────────────────────────────────────
-        df["RLA_weather_norm"] = df["RLA_Avg"] / (df["WB_roll_mean8"] + 32 + 1e-8)
-
-        # ── Group J: EWMA + persistence ──────────────────────────────────────
-        df["RLA_EWMA_4h"]        = df["RLA_Avg"].ewm(span=EWMA_SPAN, adjust=False).mean()
-        df["CHW_ret_EWMA_4h"]    = df["CHW_Return"].ewm(span=EWMA_SPAN, adjust=False).mean()
-        df["CW_ret_EWMA_4h"]     = df["CW_Return"].ewm(span=EWMA_SPAN, adjust=False).mean()
-        df["RLA_high_flag"]           = (df["RLA_Avg"] > 80).astype(float)
-        df["RLA_high_persistence_4h"] = df["RLA_high_flag"].rolling(8).sum()
-        df["RLA_high_persistence_8h"] = df["RLA_high_flag"].rolling(16).sum()
-
-        # ── Group K: multi-day trend features ────────────────────────────────
-        df["COP_7d_mean"]  = df["COP_proxy"].rolling(W7D, min_periods=48).mean()
-        df["COP_7d_drift"] = df["COP_proxy"] - df["COP_7d_mean"]
-        df["COP_3d_slope"] = (
-            df["COP_proxy"].rolling(W3D, min_periods=24).mean() -
-            df["COP_proxy"].rolling(W7D, min_periods=48).mean()
-        )
-        df["CW_approach_7d_mean"]  = df["CW_delta_T"].rolling(W7D, min_periods=48).mean()
-        df["CW_approach_drift"]    = df["CW_delta_T"] - df["CW_approach_7d_mean"]
-        df["CW_approach_3d_slope"] = (
-            df["CW_delta_T"].rolling(W3D, min_periods=24).mean() -
-            df["CW_delta_T"].rolling(W7D, min_periods=48).mean()
-        )
-        df["CHW_dT_7d_mean"]  = df["CHW_delta_T"].rolling(W7D, min_periods=48).mean()
-        df["CHW_dT_drift"]    = df["CHW_delta_T"] - df["CHW_dT_7d_mean"]
-        df["CHW_dT_3d_slope"] = (
-            df["CHW_delta_T"].rolling(W3D, min_periods=24).mean() -
-            df["CHW_delta_T"].rolling(W7D, min_periods=48).mean()
-        )
-        df["RLA_spread_7d_mean"]  = df["RLA_spread"].rolling(W7D, min_periods=48).mean()
-        df["RLA_spread_drift"]    = df["RLA_spread"] - df["RLA_spread_7d_mean"]
-        df["RLA_spread_3d_slope"] = (
-            df["RLA_spread"].rolling(W3D, min_periods=24).mean() -
-            df["RLA_spread"].rolling(W7D, min_periods=48).mean()
-        )
-        df["tower_err_3d_mean"] = df["tower_tracking_error_abs"].rolling(W3D, min_periods=24).mean()
-        df["tower_err_7d_mean"] = df["tower_tracking_error_abs"].rolling(W7D, min_periods=48).mean()
-        df["tower_err_drift"]   = df["tower_err_3d_mean"] - df["tower_err_7d_mean"]
-
-        # Startup counter (stored per-row from update())
-        df["readings_since_start"] = df["_readings_since_start"]
+        df = engineer_features(pd.DataFrame(list(self._buf)).set_index("_ts"))
 
         # ── Extract latest row and build final feature vector ────────────────
         latest = df.iloc[-1]
